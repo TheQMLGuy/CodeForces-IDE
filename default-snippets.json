@@ -1,0 +1,172 @@
+{
+    "inp": {
+        "name": "Integer Input",
+        "code": "n = int(input())",
+        "description": "Read single integer"
+    },
+    "inpl": {
+        "name": "List Input",
+        "code": "arr = list(map(int, input().split()))",
+        "description": "Read list of integers"
+    },
+    "inp2": {
+        "name": "Two Integers",
+        "code": "n, m = map(int, input().split())",
+        "description": "Read two integers"
+    },
+    "inp3": {
+        "name": "Three Integers",
+        "code": "a, b, c = map(int, input().split())",
+        "description": "Read three integers"
+    },
+    "inps": {
+        "name": "String Input",
+        "code": "s = input().strip()",
+        "description": "Read string"
+    },
+    "tc": {
+        "name": "Test Cases Loop",
+        "code": "t = int(input())\nfor _ in range(t):\n    ",
+        "description": "Multiple test cases template"
+    },
+    "tcf": {
+        "name": "Test Cases with Function",
+        "code": "def solve():\n    n = int(input())\n    \n\nt = int(input())\nfor _ in range(t):\n    solve()",
+        "description": "Test cases with solve function"
+    },
+    "mod": {
+        "name": "MOD Constant",
+        "code": "MOD = 10**9 + 7",
+        "description": "Standard modulo constant"
+    },
+    "inf": {
+        "name": "Infinity",
+        "code": "INF = float('inf')",
+        "description": "Infinity constant"
+    },
+    "yes": {
+        "name": "Yes/No Output",
+        "code": "print(\"YES\" if condition else \"NO\")",
+        "description": "Yes/No conditional print"
+    },
+    "gcd": {
+        "name": "GCD Function",
+        "code": "from math import gcd",
+        "description": "Import GCD"
+    },
+    "lcm": {
+        "name": "LCM Function",
+        "code": "from math import gcd\ndef lcm(a, b):\n    return a * b // gcd(a, b)",
+        "description": "LCM using GCD"
+    },
+    "sieve": {
+        "name": "Sieve of Eratosthenes",
+        "code": "def sieve(n):\n    is_prime = [True] * (n + 1)\n    is_prime[0] = is_prime[1] = False\n    for i in range(2, int(n**0.5) + 1):\n        if is_prime[i]:\n            for j in range(i*i, n + 1, i):\n                is_prime[j] = False\n    return is_prime",
+        "description": "Generate primes up to n"
+    },
+    "bs": {
+        "name": "Binary Search",
+        "code": "def binary_search(arr, target):\n    left, right = 0, len(arr) - 1\n    while left <= right:\n        mid = (left + right) // 2\n        if arr[mid] == target:\n            return mid\n        elif arr[mid] < target:\n            left = mid + 1\n        else:\n            right = mid - 1\n    return -1",
+        "description": "Binary search template"
+    },
+    "bsl": {
+        "name": "Binary Search Left",
+        "code": "from bisect import bisect_left",
+        "description": "Import bisect_left"
+    },
+    "bsr": {
+        "name": "Binary Search Right",
+        "code": "from bisect import bisect_right",
+        "description": "Import bisect_right"
+    },
+    "dfs": {
+        "name": "DFS Template",
+        "code": "def dfs(node, visited, graph):\n    visited.add(node)\n    for neighbor in graph[node]:\n        if neighbor not in visited:\n            dfs(neighbor, visited, graph)",
+        "description": "Depth-first search template"
+    },
+    "bfs": {
+        "name": "BFS Template",
+        "code": "from collections import deque\n\ndef bfs(start, graph):\n    visited = {start}\n    queue = deque([start])\n    while queue:\n        node = queue.popleft()\n        for neighbor in graph[node]:\n            if neighbor not in visited:\n                visited.add(neighbor)\n                queue.append(neighbor)\n    return visited",
+        "description": "Breadth-first search template"
+    },
+    "cnt": {
+        "name": "Counter",
+        "code": "from collections import Counter",
+        "description": "Import Counter"
+    },
+    "dd": {
+        "name": "DefaultDict",
+        "code": "from collections import defaultdict",
+        "description": "Import defaultdict"
+    },
+    "ddl": {
+        "name": "DefaultDict List",
+        "code": "from collections import defaultdict\ngraph = defaultdict(list)",
+        "description": "Graph adjacency list"
+    },
+    "pq": {
+        "name": "Priority Queue",
+        "code": "import heapq",
+        "description": "Import heapq for priority queue"
+    },
+    "pqpush": {
+        "name": "Heap Push",
+        "code": "heapq.heappush(heap, item)",
+        "description": "Push to heap"
+    },
+    "pqpop": {
+        "name": "Heap Pop",
+        "code": "heapq.heappop(heap)",
+        "description": "Pop from heap"
+    },
+    "sort": {
+        "name": "Sort with Key",
+        "code": "arr.sort(key=lambda x: x)",
+        "description": "Sort with custom key"
+    },
+    "rsort": {
+        "name": "Reverse Sort",
+        "code": "arr.sort(reverse=True)",
+        "description": "Sort in descending order"
+    },
+    "perm": {
+        "name": "Permutations",
+        "code": "from itertools import permutations",
+        "description": "Import permutations"
+    },
+    "comb": {
+        "name": "Combinations",
+        "code": "from itertools import combinations",
+        "description": "Import combinations"
+    },
+    "acc": {
+        "name": "Accumulate",
+        "code": "from itertools import accumulate",
+        "description": "Import accumulate for prefix sums"
+    },
+    "psum": {
+        "name": "Prefix Sum",
+        "code": "from itertools import accumulate\nprefix = list(accumulate(arr, initial=0))",
+        "description": "Prefix sum array"
+    },
+    "graph": {
+        "name": "Graph Input",
+        "code": "from collections import defaultdict\n\nn, m = map(int, input().split())\ngraph = defaultdict(list)\nfor _ in range(m):\n    u, v = map(int, input().split())\n    graph[u].append(v)\n    graph[v].append(u)",
+        "description": "Undirected graph input"
+    },
+    "matrix": {
+        "name": "Matrix Input",
+        "code": "n, m = map(int, input().split())\nmatrix = []\nfor _ in range(n):\n    row = list(map(int, input().split()))\n    matrix.append(row)",
+        "description": "2D matrix input"
+    },
+    "fastio": {
+        "name": "Fast I/O",
+        "code": "import sys\ninput = sys.stdin.readline",
+        "description": "Fast input for large data"
+    },
+    "main": {
+        "name": "Main Template",
+        "code": "import sys\ninput = sys.stdin.readline\n\ndef solve():\n    n = int(input())\n    \n\ndef main():\n    t = int(input())\n    for _ in range(t):\n        solve()\n\nif __name__ == \"__main__\":\n    main()",
+        "description": "Full main template with fast I/O"
+    }
+}

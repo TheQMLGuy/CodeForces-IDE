@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Codeforces IDE - Web</title>
+    <meta name="description"
+        content="A sleek Python IDE for Codeforces competitive programming - runs entirely in your browser">
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet">
+
+    <!-- CodeMirror 6 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+    <link rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/material-darker.min.css">
+    <link rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/hint/show-hint.min.css">
+
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <!-- Loading Screen -->
+    <div id="loadingScreen" class="loading-screen">
+        <div class="loading-content">
+            <div class="loading-logo">⚡</div>
+            <h1>Codeforces IDE</h1>
+            <p class="loading-subtitle">Loading Python Runtime...</p>
+            <div class="loading-bar">
+                <div class="loading-progress" id="loadingProgress"></div>
+            </div>
+            <p class="loading-status" id="loadingStatus">Initializing Pyodide (first load may take ~10s)</p>
+        </div>
+    </div>
+
+    <!-- Main App -->
+    <div id="app" class="app hidden">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-left">
+                <span class="logo">⚡</span>
+                <h1 class="app-title">Codeforces IDE</h1>
+                <span class="badge">Web</span>
+            </div>
+            <div class="header-center">
+                <div class="timer">
+                    <span class="timer-icon">⏱</span>
+                    <span class="timer-display" id="timerDisplay">00:00:00</span>
+                    <button class="timer-btn" id="timerStartBtn" title="Start/Pause">▶</button>
+                    <button class="timer-btn" id="timerResetBtn" title="Reset">↺</button>
+                </div>
+            </div>
+            <div class="header-right">
+                <button class="header-btn" id="snippetsBtn" title="Snippets">
+                    <span>✂</span> Snippets
+                </button>
+                <button class="header-btn" id="exportBtn" title="Download Code">
+                    <span>⬇</span> Export
+                </button>
+                <button class="header-btn primary" id="runBtn" title="Run Code (Shift+Enter)">
+                    <span>▶</span> Run
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Editor Panel -->
+            <div class="editor-panel">
+                <div class="panel-header">
+                    <span class="file-icon">🐍</span>
+                    <span class="file-name">solution.py</span>
+                    <span class="save-status" id="saveStatus" title="Auto-saved to browser">●</span>
+                </div>
+                <div class="editor-container">
+                    <textarea id="codeEditor"># Codeforces Solution
+# Type a snippet keyword (like 'inp', 'tc', 'dfs') and press Tab to expand
+# Press Shift+Enter to run your code
+
+n = int(input())
+arr = list(map(int, input().split()))
+
+print(sum(arr))
+</textarea>
+                </div>
+            </div>
+
+            <!-- Right Panel -->
+            <div class="right-panel">
+                <!-- Input Section -->
+                <div class="panel-section">
+                    <div class="section-header">
+                        <span>📥 Input</span>
+                        <button class="small-btn" id="clearInputBtn">Clear</button>
+                    </div>
+                    <div class="section-content">
+                        <textarea id="inputArea" class="io-textarea" placeholder="Paste test input here...
+Example:
+5
+1 2 3 4 5">5
+1 2 3 4 5</textarea>
+                    </div>
+                </div>
+
+                <!-- Output Section -->
+                <div class="panel-section output-section">
+                    <div class="section-header">
+                        <span>📤 Output</span>
+                        <span class="exec-time" id="execTime"></span>
+                    </div>
+                    <div class="section-content">
+                        <div id="outputArea" class="output-area">
+                            <span class="output-placeholder">Output will appear here...</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Variables Section -->
+                <div class="panel-section variables-section">
+                    <div class="section-header">
+                        <span>🔧 Variables</span>
+                        <button class="small-btn" id="refreshVarsBtn">↻</button>
+                    </div>
+                    <div class="section-content">
+                        <div id="variablesPanel" class="variables-panel">
+                            <div class="empty-state">No variables detected</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Snippets Modal -->
+        <div id="snippetsModal" class="modal hidden">
+            <div class="modal-content snippets-modal">
+                <div class="modal-header">
+                    <h2>✂ Code Snippets</h2>
+                    <button class="modal-close" id="closeSnippetsBtn">×</button>
+                </div>
+                <div class="modal-body">
+                    <p class="modal-hint">Type keyword and press <kbd>Tab</kbd> to expand</p>
+                    <div class="snippets-grid" id="snippetsGrid">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.24.1/full/pyodide.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/python/python.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/matchbrackets.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/closebrackets.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/selection/active-line.min.js"></script>
+    <script src="app.js"></script>
+</body>
+
+</html>

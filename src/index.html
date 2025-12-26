@@ -1,0 +1,761 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com;">
+    <title>Codeforces IDE</title>
+
+    <!-- CodeMirror CSS -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/darcula.min.css">
+
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background: #1e1e1e;
+            color: #d4d4d4;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* Title Bar */
+        .title-bar {
+            height: 32px;
+            background: #323232;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 10px;
+            -webkit-app-region: drag;
+        }
+
+        .title-bar-left {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .app-title {
+            font-size: 13px;
+            color: #ccc;
+        }
+
+        .title-bar-right {
+            display: flex;
+            -webkit-app-region: no-drag;
+        }
+
+        .title-btn {
+            width: 46px;
+            height: 32px;
+            background: transparent;
+            border: none;
+            color: #ccc;
+            font-size: 16px;
+            cursor: pointer;
+        }
+
+        .title-btn:hover {
+            background: #404040;
+        }
+
+        .title-btn.close:hover {
+            background: #e81123;
+            color: white;
+        }
+
+        /* Toolbar */
+        .toolbar {
+            height: 40px;
+            background: #2d2d2d;
+            display: flex;
+            align-items: center;
+            padding: 0 10px;
+            gap: 8px;
+            border-bottom: 1px solid #3c3c3c;
+        }
+
+        .tool-btn {
+            padding: 6px 12px;
+            background: #3c3c3c;
+            border: none;
+            border-radius: 4px;
+            color: #ccc;
+            font-size: 12px;
+            cursor: pointer;
+        }
+
+        .tool-btn:hover {
+            background: #505050;
+        }
+
+        .tool-btn.run {
+            background: #28a745;
+            color: white;
+        }
+
+        .tool-btn.run:hover {
+            background: #218838;
+        }
+
+        /* Main Layout */
+        .main-container {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+        }
+
+        /* Editor Panel */
+        .editor-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+        }
+
+        .editor-container {
+            flex: 1;
+            position: relative;
+        }
+
+        /* CodeMirror Styling - PyCharm Darcula */
+        .CodeMirror {
+            height: 100% !important;
+            font-family: 'JetBrains Mono', 'Consolas', monospace !important;
+            font-size: 14px !important;
+            line-height: 1.5 !important;
+        }
+
+        /* Right Panel */
+        .right-panel {
+            width: 350px;
+            display: flex;
+            flex-direction: column;
+            background: #252526;
+            border-left: 1px solid #3c3c3c;
+        }
+
+        .panel-section {
+            display: flex;
+            flex-direction: column;
+            border-bottom: 1px solid #3c3c3c;
+        }
+
+        .panel-header {
+            padding: 8px 12px;
+            background: #2d2d2d;
+            font-size: 12px;
+            font-weight: 600;
+            color: #ccc;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .panel-content {
+            flex: 1;
+            min-height: 100px;
+        }
+
+        .panel-textarea {
+            width: 100%;
+            height: 100%;
+            min-height: 100px;
+            background: #1e1e1e;
+            border: none;
+            color: #d4d4d4;
+            font-family: 'Consolas', monospace;
+            font-size: 13px;
+            padding: 8px;
+            resize: none;
+        }
+
+        .panel-textarea:focus {
+            outline: none;
+        }
+
+        .output-area {
+            min-height: 100px;
+            padding: 8px;
+            background: #1e1e1e;
+            font-family: 'Consolas', monospace;
+            font-size: 13px;
+            white-space: pre-wrap;
+            overflow-y: auto;
+        }
+
+        .output-area.error {
+            color: #f48771;
+        }
+
+        /* Variables Panel */
+        .variables-panel {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px;
+            background: #1e1e1e;
+        }
+
+        .var-item {
+            display: flex;
+            align-items: center;
+            padding: 6px 8px;
+            margin-bottom: 4px;
+            background: #2d2d2d;
+            border-radius: 4px;
+            gap: 8px;
+        }
+
+        .var-icon {
+            width: 20px;
+            height: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            background: #3c3c3c;
+            border-radius: 3px;
+            color: #569cd6;
+        }
+
+        .var-name {
+            flex: 1;
+            font-family: 'Consolas', monospace;
+            font-size: 12px;
+        }
+
+        .var-type {
+            font-size: 10px;
+            color: #808080;
+        }
+
+        .var-actions {
+            display: flex;
+            gap: 4px;
+        }
+
+        .var-action {
+            width: 22px;
+            height: 22px;
+            background: #3c3c3c;
+            border: none;
+            border-radius: 3px;
+            color: #ccc;
+            cursor: pointer;
+            font-size: 11px;
+        }
+
+        .var-action:hover {
+            background: #505050;
+        }
+
+        .empty-state {
+            text-align: center;
+            color: #808080;
+            padding: 20px;
+            font-size: 12px;
+        }
+
+        /* Timer */
+        .timer {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-left: auto;
+        }
+
+        .timer-display {
+            font-family: 'Consolas', monospace;
+            font-size: 14px;
+            color: #4ec9b0;
+        }
+
+        .timer-btn {
+            width: 24px;
+            height: 24px;
+            background: #3c3c3c;
+            border: none;
+            border-radius: 3px;
+            color: #ccc;
+            cursor: pointer;
+        }
+
+        .timer-btn:hover {
+            background: #505050;
+        }
+
+        /* Small button */
+        .small-btn {
+            padding: 2px 8px;
+            background: #3c3c3c;
+            border: none;
+            border-radius: 3px;
+            color: #ccc;
+            font-size: 11px;
+            cursor: pointer;
+        }
+
+        .small-btn:hover {
+            background: #505050;
+        }
+    </style>
+</head>
+
+<body>
+    <!-- Title Bar -->
+    <div class="title-bar">
+        <div class="title-bar-left">
+            <span style="font-size: 16px;">⚡</span>
+            <span class="app-title">Codeforces IDE - codeforces_solution.py</span>
+            <span id="saveStatus" style="color: #4ec9b0;">●</span>
+        </div>
+        <div class="title-bar-right">
+            <button class="title-btn" id="minimizeBtn">─</button>
+            <button class="title-btn" id="maximizeBtn">□</button>
+            <button class="title-btn close" id="closeBtn">×</button>
+        </div>
+    </div>
+
+    <!-- Toolbar -->
+    <div class="toolbar">
+        <button class="tool-btn" id="snippetBtn">✂ Snippets</button>
+
+        <div class="timer">
+            <span>⏱</span>
+            <span class="timer-display" id="timerDisplay">00:00:00</span>
+            <button class="timer-btn" id="timerStartBtn">▶</button>
+            <button class="timer-btn" id="timerResetBtn">↺</button>
+        </div>
+    </div>
+
+    <!-- Main Container -->
+    <div class="main-container">
+        <!-- Editor -->
+        <div class="editor-panel">
+            <div class="editor-container">
+                <textarea id="codeEditor"># Codeforces Solution
+# Type a snippet keyword and press Tab to expand
+
+n = int(input())
+arr = list(map(int, input().split()))
+
+print(sum(arr))
+</textarea>
+            </div>
+        </div>
+
+        <!-- Right Panel -->
+        <div class="right-panel">
+            <!-- Input -->
+            <div class="panel-section" style="flex: 1;">
+                <div class="panel-header">
+                    <span>📥 Input</span>
+                    <button class="small-btn" id="clearInputBtn">Clear</button>
+                </div>
+                <div class="panel-content">
+                    <textarea class="panel-textarea" id="inputArea" placeholder="Paste test input here..."></textarea>
+                </div>
+            </div>
+
+            <!-- Output -->
+            <div class="panel-section" style="flex: 1;">
+                <div class="panel-header">
+                    <span>📤 Output</span>
+                    <span id="execTime" style="font-size: 11px; color: #808080;"></span>
+                </div>
+                <div class="panel-content">
+                    <div class="output-area" id="outputArea"></div>
+                </div>
+            </div>
+
+            <!-- Variables -->
+            <div class="panel-section" style="flex: 1;">
+                <div class="panel-header">
+                    <span>🔧 Variables</span>
+                    <button class="small-btn" id="refreshVarsBtn">↻</button>
+                </div>
+                <div class="variables-panel" id="variablesPanel">
+                    <div class="empty-state">No variables detected</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- CodeMirror Scripts -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/python/python.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/matchbrackets.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/closebrackets.min.js"></script>
+
+    <script>
+        // ========================================
+        // Minimal Working Codeforces IDE
+        // ========================================
+
+        let editor;
+        let snippets = {};
+        let timerSeconds = 0;
+        let timerInterval = null;
+        let timerRunning = false;
+        let liveMode = true; // Live evaluation mode
+        let lastRunCode = '';
+
+        // Default snippets
+        const defaultSnippets = {
+            'inp': 'n = int(input())',
+            'inpl': 'arr = list(map(int, input().split()))',
+            'inp2': 'n, m = map(int, input().split())',
+            'tc': 't = int(input())\nfor _ in range(t):\n    ',
+            'dfs': 'def dfs(node, visited, graph):\n    visited.add(node)\n    for neighbor in graph[node]:\n        if neighbor not in visited:\n            dfs(neighbor, visited, graph)',
+            'bfs': 'from collections import deque\n\ndef bfs(start, graph):\n    visited = {start}\n    queue = deque([start])\n    while queue:\n        node = queue.popleft()\n        for neighbor in graph[node]:\n            if neighbor not in visited:\n                visited.add(neighbor)\n                queue.append(neighbor)',
+            'sieve': 'def sieve(n):\n    is_prime = [True] * (n + 1)\n    is_prime[0] = is_prime[1] = False\n    for i in range(2, int(n**0.5) + 1):\n        if is_prime[i]:\n            for j in range(i*i, n + 1, i):\n                is_prime[j] = False\n    return is_prime',
+            'mod': 'MOD = 10**9 + 7',
+            'inf': 'INF = float("inf")',
+            'counter': 'from collections import Counter\ncnt = Counter(arr)',
+            'dd': 'from collections import defaultdict\ngraph = defaultdict(list)',
+            'bs': 'def binary_search(arr, x):\n    lo, hi = 0, len(arr) - 1\n    while lo <= hi:\n        mid = (lo + hi) // 2\n        if arr[mid] == x:\n            return mid\n        elif arr[mid] < x:\n            lo = mid + 1\n        else:\n            hi = mid - 1\n    return -1'
+        };
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', async function () {
+            // Initialize CodeMirror
+            editor = CodeMirror.fromTextArea(document.getElementById('codeEditor'), {
+                mode: 'python',
+                theme: 'darcula',
+                lineNumbers: true,
+                matchBrackets: true,
+                autoCloseBrackets: true,
+                indentUnit: 4,
+                tabSize: 4,
+                extraKeys: {
+                    'Tab': handleTab,
+                    'Shift-Enter': runCode,
+                    'Enter': handleEnter
+                }
+            });
+
+            // Load snippets
+            try {
+                snippets = await window.electronAPI.loadSnippets();
+                if (Object.keys(snippets).length === 0) {
+                    snippets = defaultSnippets;
+                }
+            } catch (e) {
+                snippets = defaultSnippets;
+            }
+
+            // Load file
+            try {
+                const content = await window.electronAPI.readSolution();
+                if (content) editor.setValue(content);
+            } catch (e) { }
+
+            // Auto-save + Live evaluation
+            editor.on('change', debounce(async () => {
+                const code = editor.getValue();
+
+                // Auto-save
+                try {
+                    await window.electronAPI.saveSolution(code);
+                    document.getElementById('saveStatus').style.color = '#4ec9b0';
+                } catch (e) { }
+
+                // Update variables panel
+                updateVariables();
+
+                // Live evaluation - run if code has print and no input()
+                if (liveMode && code !== lastRunCode) {
+                    const hasPrint = /\bprint\s*\(/.test(code);
+                    const hasInput = /\binput\s*\(/.test(code);
+
+                    // Only live-run if there's a print and no input (can't do live input)
+                    if (hasPrint && !hasInput) {
+                        runCodeLive(code);
+                    }
+                }
+            }, 800));
+
+            // Event listeners
+            setupEventListeners();
+            updateVariables();
+            updateLiveModeButton();
+        });
+
+        function setupEventListeners() {
+            // Window controls
+            document.getElementById('minimizeBtn').onclick = () => window.electronAPI.minimize();
+            document.getElementById('maximizeBtn').onclick = () => window.electronAPI.maximize();
+            document.getElementById('closeBtn').onclick = () => window.electronAPI.close();
+
+            // Toolbar
+            document.getElementById('runBtn').onclick = runCode;
+            document.getElementById('stopBtn').onclick = () => window.electronAPI.stopPython();
+            document.getElementById('clearInputBtn').onclick = () => document.getElementById('inputArea').value = '';
+            document.getElementById('refreshVarsBtn').onclick = updateVariables;
+
+            // Timer
+            document.getElementById('timerStartBtn').onclick = toggleTimer;
+            document.getElementById('timerResetBtn').onclick = resetTimer;
+        }
+
+        // Snippet expansion
+        function handleTab(cm) {
+            const cursor = cm.getCursor();
+            const line = cm.getLine(cursor.line);
+            const beforeCursor = line.substring(0, cursor.ch);
+            const match = beforeCursor.match(/(\w+)$/);
+
+            if (match && snippets[match[1]]) {
+                const keyword = match[1];
+                const code = snippets[keyword].code || snippets[keyword];
+                cm.replaceRange(code,
+                    { line: cursor.line, ch: cursor.ch - keyword.length },
+                    cursor
+                );
+                return;
+            }
+            cm.replaceSelection('    ');
+        }
+
+        // Run code
+        async function runCode() {
+            const code = editor.getValue();
+            const input = document.getElementById('inputArea').value;
+            const outputArea = document.getElementById('outputArea');
+            const execTime = document.getElementById('execTime');
+
+            outputArea.textContent = 'Running...';
+            outputArea.className = 'output-area';
+            lastRunCode = code;
+
+            try {
+                const result = await window.electronAPI.runPython(code, input);
+                if (result.error && !result.output) {
+                    outputArea.textContent = result.error;
+                    outputArea.className = 'output-area error';
+                } else {
+                    outputArea.textContent = result.output || '(no output)';
+                }
+                execTime.textContent = result.executionTime + 'ms';
+            } catch (e) {
+                outputArea.textContent = 'Error: ' + e.message;
+                outputArea.className = 'output-area error';
+            }
+        }
+
+        // Live run (for code without input)
+        async function runCodeLive(code) {
+            const outputArea = document.getElementById('outputArea');
+            const execTime = document.getElementById('execTime');
+
+            outputArea.style.opacity = '0.6';
+            lastRunCode = code;
+
+            try {
+                const result = await window.electronAPI.runPython(code, '');
+                if (result.error && !result.output) {
+                    outputArea.textContent = result.error;
+                    outputArea.className = 'output-area error';
+                } else {
+                    outputArea.textContent = result.output || '';
+                }
+                execTime.textContent = result.executionTime + 'ms ⚡';
+            } catch (e) {
+                outputArea.textContent = 'Error: ' + e.message;
+                outputArea.className = 'output-area error';
+            }
+
+            outputArea.style.opacity = '1';
+        }
+
+        // Handle Enter key - snippet expansion, live eval, or newline
+        function handleEnter(cm) {
+            const cursor = cm.getCursor();
+            const currentLine = cm.getLine(cursor.line);
+            const beforeCursor = currentLine.substring(0, cursor.ch);
+
+            // Check for snippet expansion first
+            const snippetMatch = beforeCursor.match(/(\w+)$/);
+            if (snippetMatch && snippets[snippetMatch[1]]) {
+                const keyword = snippetMatch[1];
+                const code = snippets[keyword].code || snippets[keyword];
+                cm.replaceRange(code,
+                    { line: cursor.line, ch: cursor.ch - keyword.length },
+                    cursor
+                );
+                return;
+            }
+
+            // Do newline first
+            cm.execCommand('newlineAndIndent');
+
+            // Check if current line has print statement - trigger live eval
+            if (/\bprint\s*\(/.test(currentLine)) {
+                runLiveWithoutInput();
+            }
+        }
+
+        // Run code live by removing input() lines and replacing with hardcoded values
+        async function runLiveWithoutInput() {
+            const code = editor.getValue();
+            const outputArea = document.getElementById('outputArea');
+            const execTime = document.getElementById('execTime');
+
+            // Filter out lines with input() - replace with placeholder values
+            const lines = code.split('\n');
+            const filteredLines = lines.map(line => {
+                // Skip lines with input()
+                if (/\binput\s*\(/.test(line)) {
+                    // Try to extract variable name and provide default
+                    const match = line.match(/^\s*(\w+)\s*=\s*.*input\s*\(/);
+                    if (match) {
+                        const varName = match[1];
+                        // Provide sensible defaults based on common patterns
+                        if (line.includes('int(input')) {
+                            return `${varName} = 0  # (input skipped)`;
+                        } else if (line.includes('map(int')) {
+                            return `${varName} = []  # (input skipped)`;
+                        } else {
+                            return `${varName} = ""  # (input skipped)`;
+                        }
+                    }
+                    return '# input skipped';
+                }
+                return line;
+            });
+
+            const safeCode = filteredLines.join('\n');
+
+            // Show loading state
+            outputArea.style.opacity = '0.6';
+
+            try {
+                const result = await window.electronAPI.runPython(safeCode, '');
+                if (result.error && !result.output) {
+                    outputArea.textContent = result.error;
+                    outputArea.className = 'output-area error';
+                } else {
+                    outputArea.textContent = result.output || '';
+                    outputArea.className = 'output-area';
+                }
+                execTime.textContent = result.executionTime + 'ms ⚡';
+            } catch (e) {
+                outputArea.textContent = 'Error: ' + e.message;
+                outputArea.className = 'output-area error';
+            }
+
+            outputArea.style.opacity = '1';
+        }
+
+        // Timer
+        function toggleTimer() {
+            if (timerRunning) {
+                clearInterval(timerInterval);
+                document.getElementById('timerStartBtn').textContent = '▶';
+            } else {
+                timerInterval = setInterval(() => {
+                    timerSeconds++;
+                    updateTimerDisplay();
+                }, 1000);
+                document.getElementById('timerStartBtn').textContent = '⏸';
+            }
+            timerRunning = !timerRunning;
+        }
+
+        function resetTimer() {
+            clearInterval(timerInterval);
+            timerSeconds = 0;
+            timerRunning = false;
+            document.getElementById('timerStartBtn').textContent = '▶';
+            updateTimerDisplay();
+        }
+
+        function updateTimerDisplay() {
+            const h = String(Math.floor(timerSeconds / 3600)).padStart(2, '0');
+            const m = String(Math.floor((timerSeconds % 3600) / 60)).padStart(2, '0');
+            const s = String(timerSeconds % 60).padStart(2, '0');
+            document.getElementById('timerDisplay').textContent = `${h}:${m}:${s}`;
+        }
+
+        // Variables
+        function updateVariables() {
+            const code = editor.getValue();
+            const panel = document.getElementById('variablesPanel');
+            const vars = parseVariables(code);
+
+            if (vars.length === 0) {
+                panel.innerHTML = '<div class="empty-state">No variables detected</div>';
+                return;
+            }
+
+            panel.innerHTML = vars.map(v => `
+                <div class="var-item">
+                    <div class="var-icon">${getTypeIcon(v.type)}</div>
+                    <span class="var-name">${v.name}</span>
+                    <span class="var-type">${v.type}</span>
+                    <div class="var-actions">
+                        <button class="var-action" onclick="insertCode('for i in ${v.name}:\\n    ')" title="Iterate">↻</button>
+                        <button class="var-action" onclick="insertCode('print(${v.name})')" title="Print">📋</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function parseVariables(code) {
+            const vars = [];
+            const lines = code.split('\n');
+
+            lines.forEach(line => {
+                const match = line.match(/^\s*([a-zA-Z_]\w*)\s*=\s*(.+)$/);
+                if (match) {
+                    const name = match[1];
+                    const value = match[2];
+                    let type = 'other';
+
+                    if (value.includes('list(') || value.startsWith('[')) type = 'list';
+                    else if (value.includes('int(') || /^\d+$/.test(value)) type = 'int';
+                    else if (value.includes('input()') || value.startsWith('"') || value.startsWith("'")) type = 'str';
+                    else if (value.startsWith('{')) type = 'dict';
+
+                    if (!['t', 'i', 'j', 'k', '_'].includes(name)) {
+                        vars.push({ name, type });
+                    }
+                }
+            });
+
+            return vars;
+        }
+
+        function getTypeIcon(type) {
+            const icons = { list: '[]', int: '#', str: 'Aa', dict: '{}', other: '?' };
+            return icons[type] || '?';
+        }
+
+        function insertCode(code) {
+            const cursor = editor.getCursor();
+            editor.replaceRange('\n' + code, cursor);
+            editor.focus();
+        }
+
+        function debounce(fn, delay) {
+            let timeout;
+            return (...args) => {
+                clearTimeout(timeout);
+                timeout = setTimeout(() => fn(...args), delay);
+            };
+        }
+    </script>
+</body>
+
+</html>
