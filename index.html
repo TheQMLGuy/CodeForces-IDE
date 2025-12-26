@@ -26,18 +26,8 @@
 </head>
 
 <body>
-    <!-- Loading Screen -->
-    <div id="loadingScreen" class="loading-screen">
-        <div class="loading-content">
-            <div class="loading-logo">⚡</div>
-            <h1>Codeforces IDE</h1>
-            <p class="loading-subtitle">Loading Python Runtime...</p>
-            <div class="loading-bar">
-                <div class="loading-progress" id="loadingProgress"></div>
-            </div>
-            <p class="loading-status" id="loadingStatus">Initializing Pyodide (first load may take ~10s)</p>
-        </div>
-    </div>
+    <!-- Non-blocking toast container if needed, or just remove loading screen -->
+
 
     <!-- Main App -->
     <div id="app" class="app hidden">
@@ -49,6 +39,10 @@
                 <span class="badge">Web</span>
             </div>
             <div class="header-center">
+                <div id="runtimeStatus" class="runtime-status cooking">
+                    <span class="status-dot"></span>
+                    <span class="status-text">Loading Runtime...</span>
+                </div>
                 <div class="timer">
                     <span class="timer-icon">⏱</span>
                     <span class="timer-display" id="timerDisplay">00:00:00</span>
@@ -63,23 +57,22 @@
                 <button class="header-btn" id="exportBtn" title="Download Code">
                     <span>⬇</span> Export
                 </button>
-                <button class="header-btn primary" id="runBtn" title="Run Code (Shift+Enter)">
-                    <span>▶</span> Run
-                </button>
             </div>
         </header>
 
         <!-- Main Content -->
         <main class="main-content">
-            <!-- Editor Panel -->
-            <div class="editor-panel">
-                <div class="panel-header">
-                    <span class="file-icon">🐍</span>
-                    <span class="file-name">solution.py</span>
-                    <span class="save-status" id="saveStatus" title="Auto-saved to browser">●</span>
-                </div>
-                <div class="editor-container">
-                    <textarea id="codeEditor"># Codeforces Solution
+            <!-- Left Panel: Editor + IO -->
+            <div class="left-panel">
+                <!-- Editor Section -->
+                <div class="editor-section">
+                    <div class="panel-header">
+                        <span class="file-icon">🐍</span>
+                        <span class="file-name">solution.py</span>
+                        <span class="save-status" id="saveStatus" title="Auto-saved to browser">●</span>
+                    </div>
+                    <div class="editor-container">
+                        <textarea id="codeEditor"># Codeforces Solution
 # Type a snippet keyword (like 'inp', 'tc', 'dfs') and press Tab to expand
 # Press Shift+Enter to run your code
 
@@ -88,50 +81,42 @@ arr = list(map(int, input().split()))
 
 print(sum(arr))
 </textarea>
+                    </div>
+                </div>
+
+                <!-- IO Section (below editor) -->
+                <div class="io-section">
+                    <!-- Input -->
+                    <div class="io-box">
+                        <div class="section-header">
+                            <span>📥 Input</span>
+                            <button class="small-btn" id="clearInputBtn">Clear</button>
+                        </div>
+                        <textarea id="inputArea" class="io-textarea" placeholder="Paste input...">5
+1 2 3 4 5</textarea>
+                    </div>
+                    <!-- Output -->
+                    <div class="io-box">
+                        <div class="section-header">
+                            <span>📤 Output</span>
+                            <span class="exec-time" id="execTime"></span>
+                        </div>
+                        <div id="outputArea" class="output-area">
+                            <span class="output-placeholder">Output...</span>
+                        </div>
+                    </div>
                 </div>
             </div>
 
-            <!-- Right Panel -->
+            <!-- Right Panel: Variables Only -->
+            <div class="resizer" id="resizer"></div>
             <div class="right-panel">
-                <!-- Input Section -->
-                <div class="panel-section">
-                    <div class="section-header">
-                        <span>📥 Input</span>
-                        <button class="small-btn" id="clearInputBtn">Clear</button>
-                    </div>
-                    <div class="section-content">
-                        <textarea id="inputArea" class="io-textarea" placeholder="Paste test input here...
-Example:
-5
-1 2 3 4 5">5
-1 2 3 4 5</textarea>
-                    </div>
+                <div class="section-header">
+                    <span>🔧 Variables</span>
+                    <button class="small-btn" id="refreshVarsBtn">↻</button>
                 </div>
-
-                <!-- Output Section -->
-                <div class="panel-section output-section">
-                    <div class="section-header">
-                        <span>📤 Output</span>
-                        <span class="exec-time" id="execTime"></span>
-                    </div>
-                    <div class="section-content">
-                        <div id="outputArea" class="output-area">
-                            <span class="output-placeholder">Output will appear here...</span>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Variables Section -->
-                <div class="panel-section variables-section">
-                    <div class="section-header">
-                        <span>🔧 Variables</span>
-                        <button class="small-btn" id="refreshVarsBtn">↻</button>
-                    </div>
-                    <div class="section-content">
-                        <div id="variablesPanel" class="variables-panel">
-                            <div class="empty-state">No variables detected</div>
-                        </div>
-                    </div>
+                <div id="variablesPanel" class="variables-panel">
+                    <div class="empty-state">No variables detected</div>
                 </div>
             </div>
         </main>
@@ -141,12 +126,44 @@ Example:
             <div class="modal-content snippets-modal">
                 <div class="modal-header">
                     <h2>✂ Code Snippets</h2>
-                    <button class="modal-close" id="closeSnippetsBtn">×</button>
+                    <div class="modal-actions">
+                        <button class="header-btn" id="addSnippetBtn">+ Add Snippet</button>
+                        <button class="modal-close" id="closeSnippetsBtn">×</button>
+                    </div>
                 </div>
                 <div class="modal-body">
-                    <p class="modal-hint">Type keyword and press <kbd>Tab</kbd> to expand</p>
+                    <p class="modal-hint">Type keyword and press <kbd>Tab</kbd> to expand. Click to insert, hover for
+                        edit/delete.</p>
                     <div class="snippets-grid" id="snippetsGrid">
                         <!-- Populated by JS -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Snippet Editor Modal -->
+        <div id="snippetEditorModal" class="modal hidden">
+            <div class="modal-content snippet-editor-modal">
+                <div class="modal-header">
+                    <h2 id="snippetEditorTitle">Add Snippet</h2>
+                    <button class="modal-close" id="closeSnippetEditorBtn">×</button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label for="snippetKeyword">Keyword (e.g., "dfs", "bs")</label>
+                        <input type="text" id="snippetKeyword" placeholder="Enter keyword..." />
+                    </div>
+                    <div class="form-group">
+                        <label for="snippetName">Name (e.g., "DFS Template")</label>
+                        <input type="text" id="snippetName" placeholder="Enter name..." />
+                    </div>
+                    <div class="form-group">
+                        <label for="snippetCode">Code</label>
+                        <textarea id="snippetCode" rows="10" placeholder="Enter code..."></textarea>
+                    </div>
+                    <div class="form-actions">
+                        <button class="header-btn" id="cancelSnippetBtn">Cancel</button>
+                        <button class="header-btn primary" id="saveSnippetBtn">Save</button>
                     </div>
                 </div>
             </div>
