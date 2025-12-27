@@ -1073,22 +1073,25 @@ function updateLineComplexity() {
     if (!gutterEl) {
         gutterEl = document.createElement('div');
         gutterEl.id = 'complexity-gutter';
-        gutterEl.style.cssText = `
-            position: absolute;
-            right: 0;
-            top: 0;
-            width: 50px;
-            background: var(--bg-tertiary);
-            border-left: 1px solid var(--border-color);
-            font-family: var(--font-mono);
-            font-size: 9px;
-            overflow: hidden;
-            z-index: 5;
-        `;
+
         const wrapper = editor.getWrapperElement();
         wrapper.style.position = 'relative';
         wrapper.appendChild(gutterEl);
+
+        // Add header
+        const header = document.createElement('div');
+        header.className = 'cg-header';
+        header.innerHTML = '<span style="color:#7ee787">T</span><span style="opacity:0.5">|</span><span style="color:#a371f7">S</span>';
+        gutterEl.appendChild(header);
+
+        // Add content container
+        const content = document.createElement('div');
+        content.id = 'complexity-gutter-content';
+        gutterEl.appendChild(content);
     }
+
+    const contentEl = document.getElementById('complexity-gutter-content');
+    if (!contentEl) return;
 
     const code = editor.getValue();
     const lines = code.split('\n');
@@ -1171,26 +1174,29 @@ function updateLineComplexity() {
             else { timeC = 'n³'; colorClass = 'c-cubic'; }
         }
 
-        // Format: T|S
-        const display = `<span class="${colorClass}">${timeC}</span><span class="cg-sep">|</span><span class="c-space-val">${spaceC}</span>`;
+        // Format: T|S with proper colors (same gradient for both)
+        const timeClass = colorClass;
+        const spaceClass = spaceC === 'n' ? 'c-linear' : 'c-const';  // Same colors as time
+        const display = `<span class="${timeClass}">${timeC}</span><span class="cg-sep">|</span><span class="${spaceClass}">${spaceC}</span>`;
         html += `<div class="cg-line" style="height:${lineHeight}px;line-height:${lineHeight}px;">${display}</div>`;
     });
 
-    gutterEl.innerHTML = html;
-    gutterEl.style.height = `${lines.length * lineHeight}px`;
+    contentEl.innerHTML = html;
+    contentEl.style.height = `${lines.length * lineHeight}px`;
 
-    // Sync scroll
-    gutterEl.style.top = `-${scrollInfo.top}px`;
+    // Sync scroll - offset by header height
+    const headerHeight = 18;
+    contentEl.style.marginTop = `-${scrollInfo.top}px`;
 }
 
 // Sync gutter scroll with editor
 function initComplexityGutter() {
     if (!editor) return;
     editor.on('scroll', () => {
-        const gutterEl = document.getElementById('complexity-gutter');
-        if (gutterEl) {
+        const contentEl = document.getElementById('complexity-gutter-content');
+        if (contentEl) {
             const scrollInfo = editor.getScrollInfo();
-            gutterEl.style.top = `-${scrollInfo.top}px`;
+            contentEl.style.marginTop = `-${scrollInfo.top}px`;
         }
     });
 }

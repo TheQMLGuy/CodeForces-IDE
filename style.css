@@ -570,18 +570,18 @@ body {
 }
 
 .variables-column {
-    width: 180px;
+    width: 280px;
     flex-shrink: 0;
 }
 
 .complexity-column {
-    width: 150px;
+    width: 140px;
     flex-shrink: 0;
 }
 
 .testcases-column {
     flex: 1;
-    min-width: 150px;
+    min-width: 120px;
 }
 
 .panel-section {
@@ -1464,13 +1464,23 @@ body,
     position: absolute;
     right: 0;
     top: 0;
-    width: 50px;
+    width: 54px;
     background: var(--bg-tertiary);
-    border-left: 1px solid var(--border-color);
+    border-left: 2px solid var(--accent-primary);
     font-family: var(--font-mono);
     font-size: 9px;
     overflow: hidden;
     z-index: 5;
+    text-align: center;
+}
+
+.cg-header {
+    font-size: 8px;
+    font-weight: 600;
+    color: var(--text-muted);
+    background: var(--bg-elevated);
+    border-bottom: 1px solid var(--border-color);
+    padding: 2px 0;
     text-align: center;
 }
 
@@ -1488,35 +1498,53 @@ body,
     opacity: 0.5;
 }
 
+/* Complexity color gradient: green (1) → red (n!) */
 .c-const {
-    color: var(--text-muted);
-}
-
-.c-linear {
-    color: var(--accent-success);
-}
-
-.c-nlogn {
-    color: var(--accent-primary);
-}
-
-.c-quad {
-    color: var(--accent-warning);
-}
-
-.c-cubic {
-    color: var(--accent-error);
+    color: #3fb950;
+    /* Bright green for O(1) */
 }
 
 .c-log {
-    color: var(--accent-primary);
+    color: #58a6ff;
+    /* Blue for O(log n) */
+}
+
+.c-linear {
+    color: #7ee787;
+    /* Light green for O(n) */
+}
+
+.c-nlogn {
+    color: #d29922;
+    /* Yellow-orange for O(n log n) */
+}
+
+.c-quad {
+    color: #f0883e;
+    /* Orange for O(n²) */
+}
+
+.c-cubic {
+    color: #f85149;
+    /* Red for O(n³) */
+}
+
+.c-factorial {
+    color: #da3633;
+    /* Dark red for O(n!) */
 }
 
 .c-space {
-    color: #9d7cd8;
+    color: #a371f7;
+    /* Purple for space */
 }
 
-.c-space-val {
-    color: #9d7cd8;
-    opacity: 0.8;
+.c-space-n {
+    color: #a371f7;
+    /* Purple for O(n) space */
+}
+
+.c-space-1 {
+    color: #7d8590;
+    /* Gray for O(1) space */
 }
