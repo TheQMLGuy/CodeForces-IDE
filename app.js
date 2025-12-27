@@ -11,6 +11,7 @@ let pyodide = null;
 let isRunning = false;
 let variableValues = {};
 let variableTypes = {}; // Store runtime types
+let inputCounters = { int: 1, list: 1, str: 1, matrix: 1 };
 let timerSeconds = 0;
 let timerInterval = null;
 let timerRunning = false;
@@ -54,28 +55,33 @@ let userSnippets = {
 // DOM Elements
 // ============================================
 const elements = {
-    loadingScreen: document.getElementById('loadingScreen'),
-    loadingProgress: document.getElementById('loadingProgress'),
-    loadingStatus: document.getElementById('loadingStatus'),
+    // Runtime Status
+    runtimeStatus: document.getElementById('runtimeStatus'),
     app: document.getElementById('app'),
 
-    runBtn: document.getElementById('runBtn'),
+    // Header Buttons
     snippetsBtn: document.getElementById('snippetsBtn'),
-    exportBtn: document.getElementById('exportBtn'),
+    saveStateBtn: document.getElementById('saveStateBtn'),
+    loadStateBtn: document.getElementById('loadStateBtn'),
+    loadStateInput: document.getElementById('loadStateInput'),
 
+    // Main Areas
     inputArea: document.getElementById('inputArea'),
     outputArea: document.getElementById('outputArea'),
     execTime: document.getElementById('execTime'),
     clearInputBtn: document.getElementById('clearInputBtn'),
 
+    // Variables
     variablesPanel: document.getElementById('variablesPanel'),
     refreshVarsBtn: document.getElementById('refreshVarsBtn'),
     saveStatus: document.getElementById('saveStatus'),
 
+    // Timer
     timerDisplay: document.getElementById('timerDisplay'),
     timerStartBtn: document.getElementById('timerStartBtn'),
     timerResetBtn: document.getElementById('timerResetBtn'),
 
+    // Snippets Modal
     snippetsModal: document.getElementById('snippetsModal'),
     snippetsGrid: document.getElementById('snippetsGrid'),
     closeSnippetsBtn: document.getElementById('closeSnippetsBtn'),
@@ -89,53 +95,55 @@ const elements = {
     snippetCode: document.getElementById('snippetCode'),
     closeSnippetEditorBtn: document.getElementById('closeSnippetEditorBtn'),
     cancelSnippetBtn: document.getElementById('cancelSnippetBtn'),
-    saveSnippetBtn: document.getElementById('saveSnippetBtn')
+    saveSnippetBtn: document.getElementById('saveSnippetBtn'),
+
+    // Quick Actions
+    quickBtns: document.querySelectorAll('.quick-btn')
 };
 
 // ============================================
 // Initialization
 // ============================================
 async function init() {
-    // Load Pyodide
-    await initPyodide();
+    try {
+        // Show App IMMEDIATELY (Non-blocking)
+        if (elements.app) elements.app.classList.remove('hidden');
 
-    // Initialize CodeMirror
-    initEditor();
+        // Initialize CodeMirror
+        initEditor();
 
-    // Setup event listeners
-    setupEventListeners();
+        // Setup event listeners
+        setupEventListeners();
 
-    // Load saved code
-    loadSavedCode();
+        // Start loading Pyodide in background
+        initPyodide().then(() => {
+            console.log("Python Runtime Ready");
+        });
 
-    // Load user snippets from storage and populate modal
-    loadSnippetsFromStorage();
-    populateSnippets();
+        // Load saved code
+        loadSavedCode();
 
-    // Hide loading screen, show app
-    elements.loadingScreen.classList.add('hidden');
-    elements.app.classList.remove('hidden');
-
-    // Refresh editor to ensure proper rendering after un-hiding
-    setTimeout(() => {
-        editor.refresh();
-        editor.focus();
-    }, 100);
+        // Load user snippets from storage and populate modal
+        loadSnippetsFromStorage();
+        populateSnippets();
+    } catch (e) {
+        console.error("Critical Init Error:", e);
+        // Ensure app is visible even if error occurs
+        if (elements.app) elements.app.classList.remove('hidden');
+        alert("IDE loaded with warnings. Check console.");
+    }
 }
 
 async function initPyodide() {
     try {
-        elements.loadingStatus.textContent = 'Downloading Python runtime (~10MB)...';
-        elements.loadingProgress.style.width = '20%';
-        elements.loadingProgress.style.animation = 'none';
+        updateRuntimeStatus('cooking', 'Downloading Runtime...');
 
         // Use window.loadPyodide explicitly to avoid naming conflict with local function
         pyodide = await window.loadPyodide({
             indexURL: "https://cdn.jsdelivr.net/pyodide/v0.24.1/full/"
         });
 
-        elements.loadingProgress.style.width = '80%';
-        elements.loadingStatus.textContent = 'Setting up Python environment...';
+        updateRuntimeStatus('cooking', 'Setting up Python...');
 
         // Setup Python I/O
         await pyodide.runPythonAsync(`
@@ -163,13 +171,18 @@ sys.stdout = _captured_output
 sys.stderr = _captured_output
         `);
 
-        elements.loadingProgress.style.width = '100%';
-        elements.loadingStatus.textContent = 'Ready!';
+        updateRuntimeStatus('ready', 'Runtime Ready');
 
     } catch (error) {
-        elements.loadingStatus.textContent = `Error loading Pyodide: ${error.message}`;
+        updateRuntimeStatus('error', 'Runtime Error');
         console.error('Failed to load Pyodide:', error);
     }
+}
+
+function updateRuntimeStatus(state, text) {
+    if (!elements.runtimeStatus) return;
+    elements.runtimeStatus.className = `runtime-status ${state}`;
+    elements.runtimeStatus.querySelector('.status-text').textContent = text;
 }
 
 function initEditor() {
@@ -181,39 +194,41 @@ function initEditor() {
         autoCloseBrackets: true,
         indentUnit: 4,
         tabSize: 4,
+        indentWithTabs: false,
         styleActiveLine: true,
         extraKeys: {
             'Tab': handleTab,
-            'Shift-Enter': runCode
+            'Shift-Enter': () => runCode(false) // Explicit run
         }
     });
 
-    // Auto-save on change
+    // Auto-save and LIVE VARIABLES (Silent Run)
     editor.on('change', debounce(() => {
         saveCode();
-        updateVariables();
+        runCode(true); // Silent run to update variables
     }, 500));
 
-    // Auto-run on Enter if previous line has print()
+    // Auto-run OUTPUT on Enter if previous line has print()
     editor.on('keyup', (cm, e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
             const cursor = cm.getCursor();
-            // Get previous line (cursor is now on new line)
             if (cursor.line > 0) {
                 const prevLine = cm.getLine(cursor.line - 1);
-                // Check if previous line has a print statement
                 if (prevLine && prevLine.trim().startsWith('print(')) {
-                    runCode();
+                    runCode(false); // Update Output
                 }
             }
         }
     });
+
+    // Refresh editor after initialization
+    setTimeout(() => {
+        editor.refresh();
+        editor.focus();
+    }, 100);
 }
 
 function setupEventListeners() {
-    // Run button
-    elements.runBtn.addEventListener('click', runCode);
-
     // Clear input
     elements.clearInputBtn.addEventListener('click', () => {
         elements.inputArea.value = '';
@@ -250,34 +265,108 @@ function setupEventListeners() {
         }
     });
 
-    // Export
-    elements.exportBtn.addEventListener('click', exportCode);
+    // Save State
+    elements.saveStateBtn.addEventListener('click', saveState);
+
+    // Load State
+    elements.loadStateBtn.addEventListener('click', () => {
+        elements.loadStateInput.click();
+    });
+
+    elements.loadStateInput.addEventListener('change', (e) => {
+        if (e.target.files.length > 0) {
+            loadState(e.target.files[0]);
+        }
+    });
 
     // Keyboard shortcuts
     document.addEventListener('keydown', (e) => {
-        // Escape closes modals
         if (e.key === 'Escape') {
             elements.snippetsModal.classList.add('hidden');
             elements.snippetEditorModal.classList.add('hidden');
         }
     });
+
+    // Pane Resizing
+    const resizer = document.getElementById('resizer');
+    const leftPanel = document.querySelector('.left-panel');
+    const rightPanel = document.querySelector('.right-panel');
+    let isResizing = false;
+
+    resizer.addEventListener('mousedown', (e) => {
+        isResizing = true;
+        resizer.classList.add('resizing');
+        document.body.style.cursor = 'col-resize';
+    });
+
+    document.addEventListener('mousemove', (e) => {
+        if (!isResizing) return;
+        const containerWidth = document.querySelector('.main-content').offsetWidth;
+        const newLeftWidth = (e.clientX / containerWidth) * 100;
+
+        if (newLeftWidth > 20 && newLeftWidth < 80) { // Min/Max constraints
+            leftPanel.style.width = `${newLeftWidth}%`;
+            leftPanel.style.flex = 'none'; // Disable flex grow/shrink
+            rightPanel.style.width = `${100 - newLeftWidth}%`; // Adjust right panel
+        }
+    });
+
+    document.addEventListener('mouseup', () => {
+        if (isResizing) {
+            isResizing = false;
+            resizer.classList.remove('resizing');
+            document.body.style.cursor = 'default';
+            if (editor) editor.refresh(); // Refresh editor after resize
+        }
+    });
+
+    // Quick Action Toolbar
+    elements.quickBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const type = btn.dataset.type;
+            insertQuickInput(type);
+        });
+    });
+}
+
+function insertQuickInput(type) {
+    const i = inputCounters[type]++;
+    let code = '';
+
+    switch (type) {
+        case 'int':
+            code = `n_${i} = int(input())`;
+            break;
+        case 'list':
+            code = `arr_${i} = list(map(int, input().split()))`;
+            break;
+        case 'str':
+            code = `s_${i} = input()`;
+            break;
+        case 'matrix':
+            code = `rows_${i}, cols_${i} = map(int, input().split())\nmtx_${i} = []\nfor _ in range(rows_${i}):\n    mtx_${i}.append(list(map(int, input().split())))`;
+            break;
+    }
+
+    insertCode(code + '\n');
 }
 
 // ============================================
 // Code Execution
 // ============================================
-async function runCode() {
+async function runCode(silent = false) {
     if (!pyodide || isRunning) return;
 
     isRunning = true;
-    elements.runBtn.classList.add('running');
-    elements.runBtn.innerHTML = '<span>⏳</span> Running...';
-    elements.outputArea.textContent = 'Running...';
-    elements.outputArea.className = 'output-area';
+
+    // Only show running state if NOT silent
+    if (!silent) {
+        elements.outputArea.textContent = 'Running...';
+        elements.outputArea.className = 'output-area';
+    }
 
     const code = editor.getValue();
     const input = elements.inputArea.value;
-    const startTime = performance.now();
 
     try {
         // Reset captured output
@@ -301,42 +390,29 @@ def input(prompt=''):
         // Run user code
         await pyodide.runPythonAsync(code);
 
-        // Get output
-        const output = await pyodide.runPythonAsync('_captured_output.getvalue()');
-        const execTime = (performance.now() - startTime).toFixed(1);
+        // Fetch output ONLY if not silent
+        if (!silent) {
+            const output = await pyodide.runPythonAsync('_captured_output.getvalue()');
+            elements.outputArea.textContent = output || '(no output)';
+            elements.outputArea.className = 'output-area success';
+        }
 
-        elements.outputArea.textContent = output || '(no output)';
-        elements.outputArea.className = 'output-area success';
-        elements.execTime.textContent = `${execTime}ms`;
-
-        // Fetch variable values after successful execution
+        // ALWAYS fetch variables (Live)
         await fetchVariableValues();
 
-    } catch (error) {
-        const execTime = (performance.now() - startTime).toFixed(1);
-
-        // Clean up error message
-        let errorMsg = error.message || String(error);
-        // Remove Python traceback cruft, keep relevant error
-        const lines = errorMsg.split('\n');
-        const relevantLines = lines.filter(line =>
-            !line.includes('<exec>') &&
-            !line.includes('runPythonAsync') &&
-            line.trim()
-        );
-        errorMsg = relevantLines.slice(-3).join('\n') || errorMsg;
-
-        elements.outputArea.textContent = errorMsg;
-        elements.outputArea.className = 'output-area error';
-        elements.execTime.textContent = `${execTime}ms`;
-
-        // Still try to fetch any variables that were set before error
-        await fetchVariableValues();
+    } catch (err) {
+        if (!silent) {
+            let errorMsg = err.message || String(err);
+            // Simple cleanup
+            if (errorMsg.includes('PythonError:')) {
+                errorMsg = errorMsg.split('PythonError:')[1].trim();
+            }
+            elements.outputArea.textContent = errorMsg;
+            elements.outputArea.className = 'output-area error';
+        }
+    } finally {
+        isRunning = false;
     }
-
-    isRunning = false;
-    elements.runBtn.classList.remove('running');
-    elements.runBtn.innerHTML = '<span>▶</span> Run';
 }
 
 // ============================================
@@ -482,8 +558,6 @@ function loadSnippetsFromStorage() {
 // ============================================
 // Variable Detection
 // ============================================
-let variableValues = {};
-
 async function updateVariables() {
     const code = editor.getValue();
     const vars = parseVariables(code);
@@ -599,219 +673,56 @@ function getTypeIcon(type) {
     return icons[type] || '?';
 }
 
-function initEditor() {
-    editor = CodeMirror.fromTextArea(document.getElementById('codeEditor'), {
-        mode: 'python',
-        theme: 'dracula',
-        lineNumbers: true,
-        autoCloseBrackets: true,
-        matchBrackets: true,
-        indentUnit: 4,
-        tabSize: 4,
-        indentWithTabs: false,
-        extraKeys: {
-            'Tab': handleTab,
-            'Shift-Enter': () => runCode(false) // Explicit run
-        }
-    });
+// ============================================
+// State Management
+// ============================================
+function saveState() {
+    const state = {
+        code: editor.getValue(),
+        input: elements.inputArea.value,
+        snippets: userSnippets
+    };
+    const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `codeforces_ide_session_${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+}
 
-    // Auto-save and LIVE VARIABLES (Silent Run)
-    editor.on('change', debounce(() => {
-        saveCode();
-        runCode(true); // Silent run to update variables
-    }, 500));
-
-    // Auto-run OUTPUT on Enter if previous line has print()
-    editor.on('keyup', (cm, e) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            const cursor = cm.getCursor();
-            if (cursor.line > 0) {
-                const prevLine = cm.getLine(cursor.line - 1);
-                if (prevLine && prevLine.trim().startsWith('print(')) {
-                    runCode(false); // Update Output
-                }
+function loadState(file) {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        try {
+            const state = JSON.parse(e.target.result);
+            if (state.code) editor.setValue(state.code);
+            if (state.input) elements.inputArea.value = state.input;
+            if (state.snippets) {
+                userSnippets = state.snippets;
+                saveSnippetsToStorage();
+                populateSnippets();
             }
+            alert('Session loaded successfully!');
+        } catch (err) {
+            alert('Invalid session file');
         }
-    });
-
-    // Load saved code
-    loadSavedCode();
-
-    // Load user snippets from storage and populate modal
-    loadSnippetsFromStorage();
-    populateSnippets();
-
-    // Hide loading screen, show app
-    elements.loadingScreen.classList.add('hidden');
-    elements.app.classList.remove('hidden');
-
-    // Refresh editor to ensure proper rendering after un-hiding
-    setTimeout(() => {
-        editor.refresh();
-        editor.focus();
-    }, 100);
+    };
+    reader.readAsText(file);
 }
 
-function setupEventListeners() {
-    // Clear input
-    elements.clearInputBtn.addEventListener('click', () => {
-        elements.inputArea.value = '';
-    });
-
-    // Refresh variables
-    elements.refreshVarsBtn.addEventListener('click', updateVariables);
-
-    // Timer
-    elements.timerStartBtn.addEventListener('click', toggleTimer);
-    elements.timerResetBtn.addEventListener('click', resetTimer);
-
-    // Snippets modal
-    elements.snippetsBtn.addEventListener('click', () => {
-        elements.snippetsModal.classList.remove('hidden');
-    });
-    elements.closeSnippetsBtn.addEventListener('click', () => {
-        elements.snippetsModal.classList.add('hidden');
-    });
-    elements.snippetsModal.addEventListener('click', (e) => {
-        if (e.target === elements.snippetsModal) {
-            elements.snippetsModal.classList.add('hidden');
-        }
-    });
-
-    // Snippet Editor Modal
-    elements.addSnippetBtn.addEventListener('click', () => openSnippetEditor());
-    elements.closeSnippetEditorBtn.addEventListener('click', closeSnippetEditor);
-    elements.cancelSnippetBtn.addEventListener('click', closeSnippetEditor);
-    elements.saveSnippetBtn.addEventListener('click', saveSnippet);
-    elements.snippetEditorModal.addEventListener('click', (e) => {
-        if (e.target === elements.snippetEditorModal) {
-            closeSnippetEditor();
-        }
-    });
-
-    // Export
-    elements.exportBtn.addEventListener('click', exportCode);
-
-    // Keyboard shortcuts
-    document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') {
-            elements.snippetsModal.classList.add('hidden');
-            elements.snippetEditorModal.classList.add('hidden');
-        }
-    });
-
-    // Pane Resizing
-    const resizer = document.getElementById('resizer');
-    const leftPanel = document.querySelector('.left-panel');
-    const rightPanel = document.querySelector('.right-panel');
-    let isResizing = false;
-
-    resizer.addEventListener('mousedown', (e) => {
-        isResizing = true;
-        resizer.classList.add('resizing');
-        document.body.style.cursor = 'col-resize';
-    });
-
-    document.addEventListener('mousemove', (e) => {
-        if (!isResizing) return;
-        const containerWidth = document.querySelector('.main-content').offsetWidth;
-        const newLeftWidth = (e.clientX / containerWidth) * 100;
-
-        if (newLeftWidth > 20 && newLeftWidth < 80) { // Min/Max constraints
-            leftPanel.style.width = `${newLeftWidth}%`;
-            leftPanel.style.flex = 'none'; // Disable flex grow/shrink
-            rightPanel.style.width = `${100 - newLeftWidth}%`; // Adjust right panel
-        }
-    });
-
-    document.addEventListener('mouseup', () => {
-        isResizing = false;
-        resizer.classList.remove('resizing');
-        document.body.style.cursor = 'default';
-        if (editor) editor.refresh(); // Refresh editor after resize
-    });
-}
-
-// ============================================
-// Code Execution
-// ============================================
-async function runCode(silent = false) {
-    if (!pyodide || isRunning) return;
-
-    isRunning = true;
-
-    // Only show running state if NOT silent
-    if (!silent) {
-        elements.outputArea.textContent = 'Running...';
-        elements.outputArea.className = 'output-area';
-    }
-
+function exportCode() {
     const code = editor.getValue();
-    const input = elements.inputArea.value;
-
-    try {
-        // Reset captured output
-        await pyodide.runPythonAsync('_captured_output.reset()');
-
-        // Setup input
-        const inputLines = input.split('\n');
-        await pyodide.runPythonAsync(`
-_input_lines = ${JSON.stringify(inputLines)}
-_input_index = 0
-
-def input(prompt=''):
-    global _input_index
-    if _input_index < len(_input_lines):
-        line = _input_lines[_input_index]
-        _input_index += 1
-        return line
-    return ''
-        `);
-
-        // Run user code
-        await pyodide.runPythonAsync(code);
-
-        // Fetch output ONLY if not silent
-        if (!silent) {
-            const output = await pyodide.runPythonAsync('_captured_output.getvalue()');
-            elements.outputArea.textContent = output;
-            elements.outputArea.classList.add('success');
-
-            // Show exec time
-            // const endTime = performance.now();
-            // elements.execTime.textContent = `${(endTime - startTime).toFixed(1)}ms`;
-        }
-
-        // ALWAYS fetch variables (Live)
-        await fetchVariableValues();
-
-    } catch (err) {
-        if (!silent) {
-            elements.outputArea.textContent = String(err);
-            elements.outputArea.classList.add('error');
-        }
-    } finally {
-        isRunning = false;
-    }
+    const blob = new Blob([code], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'solution.py';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
 }
-
-function truncateValue(val) {
-    // Show full value for DSA - no truncation
-    return String(val);
-}
-
-function escapeHtml(str) {
-    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
-
-// Global function for onclick
-window.insertCode = function (code) {
-    // Handle escaped newlines from template
-    code = code.replace(/\\n/g, '\n');
-    const cursor = editor.getCursor();
-    editor.replaceRange('\n' + code, cursor);
-    editor.focus();
-};
 
 // ============================================
 // Timer
@@ -893,19 +804,6 @@ print(sum(arr))
     }
 }
 
-function exportCode() {
-    const code = editor.getValue();
-    const blob = new Blob([code], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'solution.py';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-}
-
 // ============================================
 // Utilities
 // ============================================
@@ -916,6 +814,24 @@ function debounce(fn, delay) {
         timeout = setTimeout(() => fn(...args), delay);
     };
 }
+
+function truncateValue(val) {
+    // Show full value for DSA - no truncation
+    return String(val);
+}
+
+function escapeHtml(str) {
+    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// Global function for onclick
+window.insertCode = function (code) {
+    // Handle escaped newlines from template
+    code = code.replace(/\\n/g, '\n');
+    const cursor = editor.getCursor();
+    editor.replaceRange('\n' + code, cursor);
+    editor.focus();
+};
 
 // ============================================
 // Start App

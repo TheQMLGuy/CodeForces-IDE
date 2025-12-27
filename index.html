@@ -54,9 +54,13 @@
                 <button class="header-btn" id="snippetsBtn" title="Snippets">
                     <span>✂</span> Snippets
                 </button>
-                <button class="header-btn" id="exportBtn" title="Download Code">
-                    <span>⬇</span> Export
+                <button class="header-btn" id="saveStateBtn" title="Save Session">
+                    <span>💾</span> Save
                 </button>
+                <button class="header-btn" id="loadStateBtn" title="Load Session">
+                    <span>📂</span> Load
+                </button>
+                <input type="file" id="loadStateInput" hidden accept=".json">
             </div>
         </header>
 
@@ -70,6 +74,13 @@
                         <span class="file-icon">🐍</span>
                         <span class="file-name">solution.py</span>
                         <span class="save-status" id="saveStatus" title="Auto-saved to browser">●</span>
+                        <div class="quick-actions">
+                            <span class="quick-label">+ Add:</span>
+                            <button class="quick-btn" data-type="int" title="Integer input">Int</button>
+                            <button class="quick-btn" data-type="list" title="List input">List</button>
+                            <button class="quick-btn" data-type="str" title="String input">Str</button>
+                            <button class="quick-btn" data-type="matrix" title="Matrix input">Matrix</button>
+                        </div>
                     </div>
                     <div class="editor-container">
                         <textarea id="codeEditor"># Codeforces Solution
