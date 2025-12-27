@@ -98,8 +98,32 @@ const elements = {
     saveSnippetBtn: document.getElementById('saveSnippetBtn'),
 
     // Quick Actions
-    quickBtns: document.querySelectorAll('.quick-btn')
+    quickBtns: document.querySelectorAll('.quick-btn'),
+
+    // Theme Toggle
+    themeToggleBtn: document.getElementById('themeToggleBtn'),
+    themeIcon: document.getElementById('themeIcon'),
+
+    // Tabs
+    tabBtns: document.querySelectorAll('.tab-btn'),
+    variablesTab: document.getElementById('variablesTab'),
+    testcasesTab: document.getElementById('testcasesTab'),
+    complexityTab: document.getElementById('complexityTab'),
+
+    // Test Cases
+    testCasesPanel: document.getElementById('testCasesPanel'),
+    addTestCaseBtn: document.getElementById('addTestCaseBtn'),
+    runAllTestsBtn: document.getElementById('runAllTestsBtn'),
+    stressTestBtn: document.getElementById('stressTestBtn'),
+
+    // Complexity
+    complexityPanel: document.getElementById('complexityPanel'),
+    analyzeComplexityBtn: document.getElementById('analyzeComplexityBtn')
 };
+
+// Test cases storage
+let testCases = [];
+let currentTheme = 'dark';
 
 // ============================================
 // Initialization
@@ -202,11 +226,12 @@ function initEditor() {
         }
     });
 
-    // Auto-save and LIVE VARIABLES (Silent Run)
+    // Auto-save and LIVE UPDATES - FAST 50ms!
     editor.on('change', debounce(() => {
         saveCode();
         runCode(true); // Silent run to update variables
-    }, 500));
+        analyzeComplexity(); // Live complexity analysis
+    }, 50));
 
     // Auto-run OUTPUT on Enter if previous line has print()
     editor.on('keyup', (cm, e) => {
@@ -290,7 +315,7 @@ function setupEventListeners() {
     // Pane Resizing
     const resizer = document.getElementById('resizer');
     const leftPanel = document.querySelector('.left-panel');
-    const rightPanel = document.querySelector('.right-panel');
+    const rightPanelGrid = document.querySelector('.right-panel-grid');
     let isResizing = false;
 
     resizer.addEventListener('mousedown', (e) => {
@@ -304,10 +329,9 @@ function setupEventListeners() {
         const containerWidth = document.querySelector('.main-content').offsetWidth;
         const newLeftWidth = (e.clientX / containerWidth) * 100;
 
-        if (newLeftWidth > 20 && newLeftWidth < 80) { // Min/Max constraints
+        if (newLeftWidth > 20 && newLeftWidth < 70) { // Min/Max constraints
             leftPanel.style.width = `${newLeftWidth}%`;
-            leftPanel.style.flex = 'none'; // Disable flex grow/shrink
-            rightPanel.style.width = `${100 - newLeftWidth}%`; // Adjust right panel
+            leftPanel.style.flex = 'none';
         }
     });
 
@@ -834,6 +858,426 @@ window.insertCode = function (code) {
 };
 
 // ============================================
+// Theme Toggle
+// ============================================
+function initTheme() {
+    const savedTheme = localStorage.getItem('cf-ide-theme') || 'dark';
+    setTheme(savedTheme);
+}
+
+function toggleTheme() {
+    currentTheme = currentTheme === 'dark' ? 'light' : 'dark';
+    setTheme(currentTheme);
+    localStorage.setItem('cf-ide-theme', currentTheme);
+}
+
+function setTheme(theme) {
+    currentTheme = theme;
+    document.documentElement.setAttribute('data-theme', theme);
+    if (elements.themeIcon) {
+        elements.themeIcon.textContent = theme === 'dark' ? '🌙' : '☀️';
+    }
+    // Update CodeMirror theme
+    if (editor) {
+        editor.setOption('theme', theme === 'dark' ? 'material-darker' : 'default');
+    }
+}
+
+// ============================================
+// Tab Switching
+// ============================================
+function initTabs() {
+    elements.tabBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const tabName = btn.dataset.tab;
+            switchTab(tabName);
+        });
+    });
+}
+
+function switchTab(tabName) {
+    // Update tab buttons
+    elements.tabBtns.forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.tab === tabName);
+    });
+
+    // Update tab content
+    document.querySelectorAll('.tab-content').forEach(content => {
+        content.classList.remove('active');
+    });
+    const targetTab = document.getElementById(`${tabName}Tab`);
+    if (targetTab) targetTab.classList.add('active');
+}
+
+// ============================================
+// Complexity Analyzer
+// ============================================
+function analyzeComplexity() {
+    const code = editor.getValue();
+    const analysis = detectComplexity(code);
+    renderComplexity(analysis);
+}
+
+function detectComplexity(code) {
+    const lines = code.split('\n');
+    let analysis = {
+        timeComplexity: 'O(1)',
+        spaceComplexity: 'O(1)',
+        details: []
+    };
+
+    // Count nested loops
+    let maxLoopDepth = 0;
+    let currentLoopDepth = 0;
+    let hasRecursion = false;
+    let hasSorting = false;
+    let hasBinarySearch = false;
+    let hasGraph = false;
+    let hasDP = false;
+
+    lines.forEach((line, idx) => {
+        const trimmed = line.trim();
+
+        // Detect loops
+        if (/^for\s+/.test(trimmed) || /^while\s+/.test(trimmed)) {
+            currentLoopDepth++;
+            maxLoopDepth = Math.max(maxLoopDepth, currentLoopDepth);
+            analysis.details.push({ line: idx + 1, type: 'loop', msg: `Loop detected (depth ${currentLoopDepth})` });
+        }
+
+        // Detect end of loop (by indentation decrease - simplified)
+        if (currentLoopDepth > 0 && trimmed.length > 0 && !line.startsWith('    '.repeat(currentLoopDepth))) {
+            if (!trimmed.startsWith('for') && !trimmed.startsWith('while')) {
+                // currentLoopDepth--;
+            }
+        }
+
+        // Detect recursion
+        const funcMatch = trimmed.match(/^def\s+(\w+)/);
+        if (funcMatch) {
+            const funcName = funcMatch[1];
+            const funcBody = code.slice(code.indexOf(trimmed));
+            if (funcBody.includes(`${funcName}(`)) {
+                hasRecursion = true;
+                analysis.details.push({ line: idx + 1, type: 'recursion', msg: `Recursive function: ${funcName}` });
+            }
+        }
+
+        // Detect sorting
+        if (/.sort\(/.test(trimmed) || /sorted\(/.test(trimmed)) {
+            hasSorting = true;
+            analysis.details.push({ line: idx + 1, type: 'sort', msg: 'Sorting operation' });
+        }
+
+        // Detect binary search
+        if (/bisect/.test(trimmed) || /binary_search/.test(trimmed) || /left.*right.*mid/.test(trimmed)) {
+            hasBinarySearch = true;
+            analysis.details.push({ line: idx + 1, type: 'bsearch', msg: 'Binary search pattern' });
+        }
+
+        // Detect graph/BFS/DFS
+        if (/deque|graph|visited|dfs|bfs/.test(trimmed.toLowerCase())) {
+            hasGraph = true;
+        }
+
+        // Detect DP
+        if (/dp\[/.test(trimmed) || /memo/.test(trimmed.toLowerCase())) {
+            hasDP = true;
+            analysis.details.push({ line: idx + 1, type: 'dp', msg: 'DP/Memoization pattern' });
+        }
+    });
+
+    // Determine complexity
+    if (hasRecursion && hasDP) {
+        analysis.timeComplexity = 'O(n) with memo';
+    } else if (hasRecursion) {
+        analysis.timeComplexity = 'O(2^n) possible';
+    } else if (maxLoopDepth >= 3) {
+        analysis.timeComplexity = 'O(n³)';
+    } else if (maxLoopDepth === 2) {
+        analysis.timeComplexity = hasSorting ? 'O(n² log n)' : 'O(n²)';
+    } else if (maxLoopDepth === 1) {
+        if (hasSorting) analysis.timeComplexity = 'O(n log n)';
+        else if (hasBinarySearch) analysis.timeComplexity = 'O(n log n)';
+        else analysis.timeComplexity = 'O(n)';
+    } else if (hasSorting) {
+        analysis.timeComplexity = 'O(n log n)';
+    } else if (hasBinarySearch) {
+        analysis.timeComplexity = 'O(log n)';
+    }
+
+    // Space complexity
+    if (hasDP || /\[\[/.test(code)) {
+        analysis.spaceComplexity = 'O(n²)';
+    } else if (/\[.*\]/.test(code) || hasGraph) {
+        analysis.spaceComplexity = 'O(n)';
+    }
+
+    analysis.loopDepth = maxLoopDepth;
+    analysis.hasRecursion = hasRecursion;
+    analysis.hasSorting = hasSorting;
+
+    return analysis;
+}
+
+function renderComplexity(analysis) {
+    const panel = elements.complexityPanel;
+    if (!panel) return;
+
+    panel.innerHTML = `
+        <div class="complexity-result">
+            <div class="complexity-badge">${analysis.timeComplexity}</div>
+            <div class="complexity-details">
+                <div class="complexity-item">
+                    <span>Time Complexity</span>
+                    <strong>${analysis.timeComplexity}</strong>
+                </div>
+                <div class="complexity-item">
+                    <span>Space Complexity</span>
+                    <strong>${analysis.spaceComplexity}</strong>
+                </div>
+                <div class="complexity-item">
+                    <span>Max Loop Depth</span>
+                    <strong>${analysis.loopDepth}</strong>
+                </div>
+                <div class="complexity-item">
+                    <span>Recursion</span>
+                    <strong>${analysis.hasRecursion ? 'Yes' : 'No'}</strong>
+                </div>
+                <div class="complexity-item">
+                    <span>Sorting</span>
+                    <strong>${analysis.hasSorting ? 'Yes' : 'No'}</strong>
+                </div>
+            </div>
+            ${analysis.details.length > 0 ? `
+                <div style="margin-top: 10px; font-size: 10px; color: var(--text-muted);">
+                    <strong>Detected patterns:</strong><br>
+                    ${analysis.details.map(d => `Line ${d.line}: ${d.msg}`).join('<br>')}
+                </div>
+            ` : ''}
+        </div>
+    `;
+}
+
+// ============================================
+// Test Case Manager
+// ============================================
+function initTestCases() {
+    // Load saved test cases
+    const saved = localStorage.getItem('cf-ide-testcases');
+    if (saved) {
+        try { testCases = JSON.parse(saved); } catch (e) { }
+    }
+
+    // Add default test case if empty
+    if (testCases.length === 0) {
+        testCases.push({
+            id: 1,
+            name: 'Sample 1',
+            input: elements.inputArea?.value || '5\n1 2 3 4 5',
+            expected: '15',
+            actual: '',
+            status: 'pending'
+        });
+    }
+
+    renderTestCases();
+}
+
+function addTestCase() {
+    const id = testCases.length + 1;
+    testCases.push({
+        id,
+        name: `Test ${id}`,
+        input: '',
+        expected: '',
+        actual: '',
+        status: 'pending'
+    });
+    saveTestCases();
+    renderTestCases();
+}
+
+function deleteTestCase(id) {
+    testCases = testCases.filter(tc => tc.id !== id);
+    saveTestCases();
+    renderTestCases();
+}
+
+function saveTestCases() {
+    localStorage.setItem('cf-ide-testcases', JSON.stringify(testCases));
+}
+
+function renderTestCases() {
+    const panel = elements.testCasesPanel;
+    if (!panel) return;
+
+    if (testCases.length === 0) {
+        panel.innerHTML = '<div class="empty-state">No test cases. Click + Add to create one.</div>';
+        return;
+    }
+
+    panel.innerHTML = testCases.map((tc, idx) => `
+        <div class="testcase-card ${tc.status}" data-id="${tc.id}">
+            <div class="testcase-header">
+                <span class="testcase-num">#${idx + 1}</span>
+                <span class="testcase-status">${tc.status === 'pass' ? '✓' : tc.status === 'fail' ? '✗' : '○'}</span>
+                <button class="small-btn delete-btn" onclick="deleteTestCase(${tc.id})" title="Delete">×</button>
+            </div>
+            <div class="testcase-io">
+                <div>
+                    <div style="font-size:9px;color:var(--text-muted)">In:</div>
+                    <textarea class="tc-input" onchange="updateTestCase(${tc.id}, 'input', this.value)">${escapeHtml(tc.input)}</textarea>
+                </div>
+                <div>
+                    <div style="font-size:9px;color:var(--text-muted)">Exp:</div>
+                    <textarea class="tc-input" onchange="updateTestCase(${tc.id}, 'expected', this.value)">${escapeHtml(tc.expected)}</textarea>
+                </div>
+            </div>
+            ${tc.actual ? `<div class="tc-actual ${tc.status}">→ ${escapeHtml(tc.actual)}</div>` : ''}
+        </div>
+    `).join('');
+}
+
+window.updateTestCase = function (id, field, value) {
+    const tc = testCases.find(t => t.id === id);
+    if (tc) {
+        tc[field] = value;
+        saveTestCases();
+    }
+};
+
+window.deleteTestCase = deleteTestCase;
+
+async function runAllTests() {
+    if (!pyodide) return;
+
+    const code = editor.getValue();
+
+    for (const tc of testCases) {
+        try {
+            await pyodide.runPythonAsync('_captured_output.reset()');
+
+            const inputLines = tc.input.split('\n');
+            await pyodide.runPythonAsync(`
+_input_lines = ${JSON.stringify(inputLines)}
+_input_index = 0
+def input(prompt=''):
+    global _input_index
+    if _input_index < len(_input_lines):
+        line = _input_lines[_input_index]
+        _input_index += 1
+        return line
+    return ''
+            `);
+
+            await pyodide.runPythonAsync(code);
+            const output = await pyodide.runPythonAsync('_captured_output.getvalue()');
+
+            tc.actual = output.trim();
+            tc.status = tc.actual === tc.expected.trim() ? 'pass' : 'fail';
+        } catch (e) {
+            tc.actual = 'Error: ' + e.message;
+            tc.status = 'fail';
+        }
+    }
+
+    saveTestCases();
+    renderTestCases();
+}
+
+// ============================================
+// Stress Testing
+// ============================================
+async function runStressTest() {
+    if (!pyodide) {
+        alert('Wait for Python runtime to load');
+        return;
+    }
+
+    const iterations = parseInt(prompt('Number of random test iterations:', '100')) || 100;
+
+    // Generate random inputs and run
+    let passed = 0;
+    let failed = 0;
+
+    for (let i = 0; i < iterations; i++) {
+        const n = Math.floor(Math.random() * 100) + 1;
+        const arr = Array.from({ length: n }, () => Math.floor(Math.random() * 1000));
+        const input = `${n}\n${arr.join(' ')}`;
+
+        try {
+            await pyodide.runPythonAsync('_captured_output.reset()');
+            await pyodide.runPythonAsync(`
+_input_lines = ${JSON.stringify(input.split('\n'))}
+_input_index = 0
+def input(prompt=''):
+    global _input_index
+    if _input_index < len(_input_lines):
+        line = _input_lines[_input_index]
+        _input_index += 1
+        return line
+    return ''
+            `);
+            await pyodide.runPythonAsync(editor.getValue());
+            passed++;
+        } catch (e) {
+            failed++;
+            if (failed === 1) {
+                // Show first failing case
+                testCases.push({
+                    id: testCases.length + 1,
+                    name: `Stress Fail ${failed}`,
+                    input: input,
+                    expected: '?',
+                    actual: 'Error: ' + e.message,
+                    status: 'fail'
+                });
+            }
+        }
+    }
+
+    alert(`Stress Test Complete!\n\nPassed: ${passed}/${iterations}\nFailed: ${failed}`);
+    if (failed > 0) {
+        saveTestCases();
+        renderTestCases();
+        switchTab('testcases');
+    }
+}
+
+// ============================================
+// Additional Event Listeners Setup
+// ============================================
+function setupNewFeatureListeners() {
+    // Theme toggle
+    if (elements.themeToggleBtn) {
+        elements.themeToggleBtn.addEventListener('click', toggleTheme);
+    }
+
+    // Test case buttons
+    if (elements.addTestCaseBtn) {
+        elements.addTestCaseBtn.addEventListener('click', addTestCase);
+    }
+    if (elements.runAllTestsBtn) {
+        elements.runAllTestsBtn.addEventListener('click', runAllTests);
+    }
+    if (elements.stressTestBtn) {
+        elements.stressTestBtn.addEventListener('click', runStressTest);
+    }
+
+    // Complexity analyzer
+    if (elements.analyzeComplexityBtn) {
+        elements.analyzeComplexityBtn.addEventListener('click', analyzeComplexity);
+    }
+}
+
+// ============================================
 // Start App
 // ============================================
-document.addEventListener('DOMContentLoaded', init);
+document.addEventListener('DOMContentLoaded', () => {
+    init();
+    initTheme();
+    initTabs();
+    initTestCases();
+    setupNewFeatureListeners();
+});
