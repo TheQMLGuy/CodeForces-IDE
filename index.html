@@ -122,46 +122,42 @@ print(sum(arr))
                 </div>
             </div>
 
-            <!-- Right Panel: Variables + Test Cases + Complexity Side by Side -->
+            <!-- Right Panel: Variables | Complexity | Test Cases -->
             <div class="resizer" id="resizer"></div>
             <div class="right-panel-grid">
                 <!-- Variables Column -->
                 <div class="panel-column variables-column">
                     <div class="section-header">
-                        <span>🔧 Live Variables</span>
+                        <span>🔧 Variables</span>
                         <button class="small-btn" id="refreshVarsBtn">↻</button>
                     </div>
                     <div id="variablesPanel" class="variables-panel">
-                        <div class="empty-state">No variables detected</div>
+                        <div class="empty-state">No variables</div>
                     </div>
                 </div>
 
-                <!-- Test Cases + Complexity Column -->
-                <div class="panel-column tools-column">
-                    <!-- Test Cases Section -->
-                    <div class="panel-section testcases-section">
-                        <div class="section-header">
-                            <span>📋 Test Cases</span>
-                            <button class="small-btn" id="addTestCaseBtn">+</button>
-                        </div>
-                        <div id="testCasesPanel" class="testcases-panel">
-                            <!-- Test cases will be populated here -->
-                        </div>
-                        <div class="testcase-actions">
-                            <button class="action-btn primary" id="runAllTestsBtn">▶ Run All</button>
-                            <button class="action-btn" id="stressTestBtn">🎲 Stress</button>
-                        </div>
+                <!-- Complexity Column -->
+                <div class="panel-column complexity-column">
+                    <div class="section-header">
+                        <span>⚡ Complexity</span>
                     </div>
+                    <div id="complexityPanel" class="complexity-panel">
+                        <div class="empty-state">Type to analyze</div>
+                    </div>
+                </div>
 
-                    <!-- Complexity Section -->
-                    <div class="panel-section complexity-section">
-                        <div class="section-header">
-                            <span>⚡ Complexity</span>
-                            <button class="small-btn" id="analyzeComplexityBtn">Analyze</button>
-                        </div>
-                        <div id="complexityPanel" class="complexity-panel">
-                            <div class="empty-state">Click Analyze</div>
-                        </div>
+                <!-- Test Cases Column -->
+                <div class="panel-column testcases-column">
+                    <div class="section-header">
+                        <span>📋 Tests</span>
+                        <button class="small-btn" id="addTestCaseBtn">+</button>
+                    </div>
+                    <div id="testCasesPanel" class="testcases-panel">
+                        <!-- Test cases will be populated here -->
+                    </div>
+                    <div class="testcase-actions">
+                        <button class="action-btn primary" id="runAllTestsBtn">▶ Run</button>
+                        <button class="action-btn" id="stressTestBtn">🎲</button>
                     </div>
                 </div>
             </div>

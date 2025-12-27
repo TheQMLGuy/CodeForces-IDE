@@ -548,12 +548,13 @@ body {
     white-space: pre-wrap;
 }
 
-/* Right Panel Grid Layout */
+/* Right Panel Grid Layout - 3 Columns */
 .right-panel-grid {
     display: flex;
-    flex-shrink: 0;
+    flex: 1;
     background: var(--bg-secondary);
     border-left: 1px solid var(--border-color);
+    min-width: 0;
 }
 
 .panel-column {
@@ -561,35 +562,54 @@ body {
     flex-direction: column;
     background: var(--bg-secondary);
     min-width: 0;
-}
-
-.variables-column {
-    width: 200px;
     border-right: 1px solid var(--border-color);
 }
 
-.tools-column {
-    width: 220px;
-    display: flex;
-    flex-direction: column;
+.panel-column:last-child {
+    border-right: none;
+}
+
+.variables-column {
+    width: 180px;
+    flex-shrink: 0;
+}
+
+.complexity-column {
+    width: 150px;
+    flex-shrink: 0;
+}
+
+.testcases-column {
+    flex: 1;
+    min-width: 150px;
 }
 
 .panel-section {
     display: flex;
     flex-direction: column;
-    border-bottom: 1px solid var(--border-color);
 }
 
 .testcases-section {
     flex: 1;
-    min-height: 120px;
     overflow: hidden;
 }
 
 .complexity-section {
-    height: 140px;
-    flex-shrink: 0;
-    border-bottom: none;
+    flex: 1;
+}
+
+/* Complexity panel in column */
+.complexity-column .complexity-panel {
+    flex: 1;
+    padding: 8px;
+    overflow-y: auto;
+}
+
+/* Test cases in column */
+.testcases-column .testcases-panel {
+    flex: 1;
+    padding: 6px;
+    overflow-y: auto;
 }
 
 /* Compact Test Case Styling */
