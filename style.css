@@ -1456,3 +1456,67 @@ body,
     color: var(--accent-primary);
     font-weight: bold;
 }
+
+/* ========================================
+   Per-Line Complexity Gutter (Time | Space)
+   ======================================== */
+#complexity-gutter {
+    position: absolute;
+    right: 0;
+    top: 0;
+    width: 50px;
+    background: var(--bg-tertiary);
+    border-left: 1px solid var(--border-color);
+    font-family: var(--font-mono);
+    font-size: 9px;
+    overflow: hidden;
+    z-index: 5;
+    text-align: center;
+}
+
+.cg-line {
+    padding: 0 2px;
+    text-align: center;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 1px;
+}
+
+.cg-sep {
+    color: var(--border-color);
+    opacity: 0.5;
+}
+
+.c-const {
+    color: var(--text-muted);
+}
+
+.c-linear {
+    color: var(--accent-success);
+}
+
+.c-nlogn {
+    color: var(--accent-primary);
+}
+
+.c-quad {
+    color: var(--accent-warning);
+}
+
+.c-cubic {
+    color: var(--accent-error);
+}
+
+.c-log {
+    color: var(--accent-primary);
+}
+
+.c-space {
+    color: #9d7cd8;
+}
+
+.c-space-val {
+    color: #9d7cd8;
+    opacity: 0.8;
+}

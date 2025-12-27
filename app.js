@@ -231,6 +231,7 @@ function initEditor() {
         saveCode();
         runCode(true); // Silent run to update variables
         analyzeComplexity(); // Live complexity analysis
+        updateLineComplexity(); // Per-line complexity annotations
     }, 50));
 
     // Auto-run OUTPUT on Enter if previous line has print()
@@ -250,6 +251,8 @@ function initEditor() {
     setTimeout(() => {
         editor.refresh();
         editor.focus();
+        initComplexityGutter(); // Setup complexity gutter scroll sync
+        updateLineComplexity(); // Initial complexity annotations
     }, 100);
 }
 
@@ -1057,6 +1060,139 @@ function renderComplexity(analysis) {
             ` : ''}
         </div>
     `;
+}
+
+// ============================================
+// Per-Line Complexity Annotations (Time | Space)
+// ============================================
+function updateLineComplexity() {
+    if (!editor) return;
+
+    // Create or get complexity gutter container
+    let gutterEl = document.getElementById('complexity-gutter');
+    if (!gutterEl) {
+        gutterEl = document.createElement('div');
+        gutterEl.id = 'complexity-gutter';
+        gutterEl.style.cssText = `
+            position: absolute;
+            right: 0;
+            top: 0;
+            width: 50px;
+            background: var(--bg-tertiary);
+            border-left: 1px solid var(--border-color);
+            font-family: var(--font-mono);
+            font-size: 9px;
+            overflow: hidden;
+            z-index: 5;
+        `;
+        const wrapper = editor.getWrapperElement();
+        wrapper.style.position = 'relative';
+        wrapper.appendChild(gutterEl);
+    }
+
+    const code = editor.getValue();
+    const lines = code.split('\n');
+    const lineHeight = editor.defaultTextHeight();
+    const scrollInfo = editor.getScrollInfo();
+
+    // Track loop depth for complexity
+    let loopDepth = 0;
+    let loopIndents = [];
+
+    let html = '';
+
+    lines.forEach((line, idx) => {
+        const trimmed = line.trim();
+        const indent = line.search(/\S|$/);
+
+        // Pop from loop stack when dedented
+        while (loopIndents.length > 0 && indent <= loopIndents[loopIndents.length - 1] && !trimmed.startsWith('for') && !trimmed.startsWith('while')) {
+            loopIndents.pop();
+            if (loopDepth > 0) loopDepth--;
+        }
+
+        let timeC = '1';
+        let spaceC = '1';
+        let colorClass = 'c-const';
+
+        if (!trimmed || trimmed.startsWith('#')) {
+            html += `<div class="cg-line" style="height:${lineHeight}px;line-height:${lineHeight}px;"></div>`;
+            return;
+        }
+
+        // Detect loop start
+        if (/^for\s+/.test(trimmed) || /^while\s+/.test(trimmed)) {
+            loopDepth++;
+            loopIndents.push(indent);
+
+            if (loopDepth === 1) { timeC = 'n'; colorClass = 'c-linear'; }
+            else if (loopDepth === 2) { timeC = 'n²'; colorClass = 'c-quad'; }
+            else { timeC = 'n³'; colorClass = 'c-cubic'; }
+        }
+        // Sorting - time O(n log n), space O(n)
+        else if (/.sort\(/.test(trimmed) || /sorted\(/.test(trimmed)) {
+            timeC = 'nlogn';
+            spaceC = 'n';
+            colorClass = 'c-nlogn';
+        }
+        // List/array creation - space O(n)
+        else if (/\[\s*\]|list\(|=\s*\[/.test(trimmed) || /range\(/.test(trimmed) && /list/.test(trimmed)) {
+            if (loopDepth > 0) {
+                timeC = loopDepth === 1 ? 'n' : loopDepth === 2 ? 'n²' : 'n³';
+            }
+            spaceC = 'n';
+            colorClass = loopDepth > 0 ? (loopDepth === 1 ? 'c-linear' : loopDepth === 2 ? 'c-quad' : 'c-cubic') : 'c-space';
+        }
+        // Dict/set creation - space O(n)
+        else if (/\{\s*\}|dict\(|set\(|defaultdict|Counter/.test(trimmed)) {
+            spaceC = 'n';
+            if (loopDepth > 0) {
+                timeC = loopDepth === 1 ? 'n' : loopDepth === 2 ? 'n²' : 'n³';
+                colorClass = loopDepth === 1 ? 'c-linear' : loopDepth === 2 ? 'c-quad' : 'c-cubic';
+            } else {
+                colorClass = 'c-space';
+            }
+        }
+        // Binary search - time O(log n)
+        else if (/bisect/.test(trimmed)) {
+            timeC = 'logn';
+            colorClass = 'c-log';
+        }
+        // Append inside loop - potential O(n) amortized
+        else if (/\.append\(/.test(trimmed) && loopDepth > 0) {
+            timeC = loopDepth === 1 ? 'n' : loopDepth === 2 ? 'n²' : 'n³';
+            spaceC = 'n';
+            colorClass = loopDepth === 1 ? 'c-linear' : loopDepth === 2 ? 'c-quad' : 'c-cubic';
+        }
+        // Inside loop
+        else if (loopDepth > 0) {
+            if (loopDepth === 1) { timeC = 'n'; colorClass = 'c-linear'; }
+            else if (loopDepth === 2) { timeC = 'n²'; colorClass = 'c-quad'; }
+            else { timeC = 'n³'; colorClass = 'c-cubic'; }
+        }
+
+        // Format: T|S
+        const display = `<span class="${colorClass}">${timeC}</span><span class="cg-sep">|</span><span class="c-space-val">${spaceC}</span>`;
+        html += `<div class="cg-line" style="height:${lineHeight}px;line-height:${lineHeight}px;">${display}</div>`;
+    });
+
+    gutterEl.innerHTML = html;
+    gutterEl.style.height = `${lines.length * lineHeight}px`;
+
+    // Sync scroll
+    gutterEl.style.top = `-${scrollInfo.top}px`;
+}
+
+// Sync gutter scroll with editor
+function initComplexityGutter() {
+    if (!editor) return;
+    editor.on('scroll', () => {
+        const gutterEl = document.getElementById('complexity-gutter');
+        if (gutterEl) {
+            const scrollInfo = editor.getScrollInfo();
+            gutterEl.style.top = `-${scrollInfo.top}px`;
+        }
+    });
 }
 
 // ============================================
