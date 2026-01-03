@@ -1,0 +1,38 @@
+make the variable thing live!
+i should be able to see its values without needing to refresh
+even if its input from the input panel, it should read it without me having to run the code manually and where is that
++ button where we havve quick actions panel like taking input (list, number, string, etc.)
+---done---
+remove that extra black area at right, and make the individual variable boxes smaller, so that more variables can fit in the screen
+can fit in the view, and suggest more features so that it can be a versatile tool for codeforces
+---done---
+make the variables update more faster, if possible 10ms
+and add dark/light theme toggle, complexity analyzer(a big yes), stress testing(please, it would work in unison with 
+problem parser, making sure its the correct test case) and yeah the black screen we removed we can add the test case manager there
+--done--
+make the test case manager live, so that i can see the test cases without needing to refresh
+dont make the test case manager, variable, and complexity thing in the same tab, move the test case and
+complexity analyzer to right of variable box, making the complexity analyser below the test case, taking up square box space
+--done--
+make the complexity analyser live, so that i can see the complexity without needing to refresh
+you dont need to mention sample 1, its already very clear that its sample 1 since its in a box, remove that
+and please remove that empty black area at the rightmost
+and shift complexity analyzer just a bit up making sure it fits in the view
+--done--
+there is still black empty space at the rightmost
+--done--
+the test case manager is taking a lot of horizontal space, do one thing, sandwich the complexity analyzer
+between the variable box and test case manager
+--done--
+add time and space complexity of each line(no need to right O, just write if its n n^2 and so on) at the rightmost of the editor, that would be a cool feature isnt it?
+and make them seperate by vertical lines
+--done--
+the test case manager is taking too much space, and the variable box is bit too small horizontally, expand it
+--done-- 
+where is space complexity of each line?
+--done--
+also at the top write t|s so that its clear which is which and make a nice line seperating these complexity and the editor
+and make 1 as absolute green while going red as the complexity rises, with red for maximum complexity n!
+and make the variable box a bit wider, shifting editor to a bit left and test case manager to a bit right
+and why is 1 purple in there, and really widen the variable i aim to add more buttons to it
+for the space too, use the same colour coding

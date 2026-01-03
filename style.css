@@ -1548,3 +1548,127 @@ body,
     color: #7d8590;
     /* Gray for O(1) space */
 }
+
+/* ========================================
+   Google Authentication Styles
+   ======================================== */
+
+/* Google Sign-In Button */
+.google-signin {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    padding: 6px 12px;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.google-signin:hover {
+    background: var(--bg-elevated);
+    border-color: var(--accent-primary);
+    transform: translateY(-1px);
+}
+
+.google-signin svg {
+    flex-shrink: 0;
+}
+
+/* User Profile (Signed In State) */
+.user-profile {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--bg-tertiary);
+    padding: 4px 10px 4px 4px;
+    border-radius: 20px;
+    border: 1px solid var(--border-color);
+}
+
+.user-avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 2px solid var(--accent-success);
+}
+
+.user-name {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-primary);
+    max-width: 100px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.signout-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 14px;
+    padding: 4px;
+    border-radius: var(--radius-sm);
+    transition: all 0.2s;
+}
+
+.signout-btn:hover {
+    background: var(--accent-error);
+    color: white;
+}
+
+/* Sync Status Indicator */
+.sync-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: var(--radius-md);
+    font-size: 11px;
+    font-weight: 500;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    transition: all 0.3s ease;
+}
+
+.sync-status.syncing {
+    border-color: rgba(88, 166, 255, 0.5);
+    background: rgba(88, 166, 255, 0.1);
+    color: var(--accent-primary);
+}
+
+.sync-status.syncing #syncIcon {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.sync-status.synced {
+    border-color: rgba(63, 185, 80, 0.5);
+    background: rgba(63, 185, 80, 0.1);
+    color: var(--accent-success);
+}
+
+.sync-status.error {
+    border-color: rgba(248, 81, 73, 0.5);
+    background: rgba(248, 81, 73, 0.1);
+    color: var(--accent-error);
+}
+
+.sync-status.offline {
+    border-color: var(--border-color);
+    background: var(--bg-tertiary);
+    color: var(--text-muted);
+}

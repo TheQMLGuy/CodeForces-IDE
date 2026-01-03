@@ -139,12 +139,15 @@ async function init() {
         // Setup event listeners
         setupEventListeners();
 
+        // Initialize Google Auth (async, non-blocking)
+        initAuthAndSync();
+
         // Start loading Pyodide in background
         initPyodide().then(() => {
             console.log("Python Runtime Ready");
         });
 
-        // Load saved code
+        // Load saved code (from localStorage initially)
         loadSavedCode();
 
         // Load user snippets from storage and populate modal
@@ -156,6 +159,130 @@ async function init() {
         if (elements.app) elements.app.classList.remove('hidden');
         alert("IDE loaded with warnings. Check console.");
     }
+}
+
+// ============================================
+// Google Auth & Firebase Sync Integration
+// ============================================
+async function initAuthAndSync() {
+    try {
+        // Initialize Firebase
+        if (typeof FirebaseSync !== 'undefined') {
+            await FirebaseSync.init();
+        }
+
+        // Initialize Google Auth
+        if (typeof GoogleAuth !== 'undefined') {
+            await GoogleAuth.init();
+
+            // Setup auth event handlers
+            GoogleAuth.onAuthStateChange('signIn', handleSignIn);
+            GoogleAuth.onAuthStateChange('signOut', handleSignOut);
+
+            // Update UI based on current auth state
+            GoogleAuth.updateUI();
+
+            // Setup button click handlers
+            const signInBtn = document.getElementById('googleSignInBtn');
+            const signOutBtn = document.getElementById('signOutBtn');
+
+            if (signInBtn) {
+                signInBtn.addEventListener('click', () => GoogleAuth.signIn());
+            }
+            if (signOutBtn) {
+                signOutBtn.addEventListener('click', () => GoogleAuth.signOut());
+            }
+
+            // If already signed in, load cloud data
+            if (GoogleAuth.isSignedIn()) {
+                await loadFromCloud();
+            }
+        }
+    } catch (error) {
+        console.error('Auth/Sync initialization failed:', error);
+    }
+}
+
+async function handleSignIn(user) {
+    console.log('Signed in as:', user.name);
+
+    // Enable cloud sync
+    if (typeof FirebaseSync !== 'undefined') {
+        FirebaseSync.enableSync();
+    }
+
+    // Load data from cloud and merge with local
+    await loadFromCloud();
+}
+
+function handleSignOut() {
+    console.log('Signed out');
+
+    // Disable cloud sync
+    if (typeof FirebaseSync !== 'undefined') {
+        FirebaseSync.disableSync();
+    }
+}
+
+async function loadFromCloud() {
+    if (typeof GoogleAuth === 'undefined' || typeof FirebaseSync === 'undefined') return;
+
+    const userId = GoogleAuth.getUserId();
+    if (!userId) return;
+
+    try {
+        const cloudData = await FirebaseSync.load(userId);
+
+        if (cloudData) {
+            // Get current local data
+            const localData = {
+                code: editor.getValue(),
+                input: elements.inputArea.value,
+                snippets: userSnippets,
+                testCases: testCases
+            };
+
+            // Merge cloud + local (cloud takes priority)
+            const merged = FirebaseSync.merge(localData, cloudData);
+
+            // Apply merged data
+            if (merged.code) editor.setValue(merged.code);
+            if (merged.input) elements.inputArea.value = merged.input;
+            if (merged.snippets) {
+                userSnippets = { ...userSnippets, ...merged.snippets };
+                saveSnippetsToStorage();
+                populateSnippets();
+            }
+            if (merged.testCases && merged.testCases.length > 0) {
+                testCases = merged.testCases;
+                saveTestCases();
+                renderTestCases();
+            }
+
+            console.log('Cloud data loaded and merged');
+        }
+    } catch (error) {
+        console.error('Failed to load from cloud:', error);
+    }
+}
+
+async function saveToCloud() {
+    if (typeof GoogleAuth === 'undefined' || typeof FirebaseSync === 'undefined') return;
+    if (!GoogleAuth.isSignedIn()) return;
+
+    const userId = GoogleAuth.getUserId();
+    if (!userId) return;
+
+    const data = {
+        code: editor.getValue(),
+        input: elements.inputArea.value,
+        snippets: userSnippets,
+        testCases: testCases,
+        theme: currentTheme
+    };
+
+    // Use debounced save
+    FirebaseSync.scheduleSave(userId, data);
 }
 
 async function initPyodide() {
@@ -792,6 +919,9 @@ function saveCode() {
         localStorage.setItem('cf-ide-input', elements.inputArea.value);
         elements.saveStatus.style.color = 'var(--accent-success)';
         elements.saveStatus.title = 'Auto-saved';
+
+        // Also save to cloud if signed in
+        saveToCloud();
     } catch (e) {
         console.error('Failed to save:', e);
     }
