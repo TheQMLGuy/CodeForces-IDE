@@ -1672,3 +1672,401 @@ body,
     background: var(--bg-tertiary);
     color: var(--text-muted);
 }
+
+/* ========================================
+   Execution Stats
+   ======================================== */
+.exec-stats {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.exec-time,
+.exec-memory {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+    background: var(--bg-primary);
+}
+
+.exec-time.fast {
+    color: var(--accent-success);
+    background: rgba(63, 185, 80, 0.15);
+}
+
+.exec-time.medium {
+    color: var(--accent-warning);
+    background: rgba(210, 153, 34, 0.15);
+}
+
+.exec-time.slow {
+    color: var(--accent-error);
+    background: rgba(248, 81, 73, 0.15);
+}
+
+.exec-memory {
+    color: var(--accent-primary);
+    background: rgba(88, 166, 255, 0.15);
+}
+
+/* ========================================
+   Problem Parser Modal
+   ======================================== */
+.problem-parser-modal {
+    max-width: 600px;
+}
+
+.url-input-group {
+    display: flex;
+    gap: 8px;
+}
+
+.url-input-group input {
+    flex: 1;
+}
+
+.form-hint {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 6px;
+}
+
+.parse-status {
+    padding: 10px 14px;
+    border-radius: var(--radius-md);
+    margin-top: 12px;
+    font-size: 13px;
+}
+
+.parse-status.loading {
+    background: rgba(88, 166, 255, 0.15);
+    color: var(--accent-primary);
+    border: 1px solid rgba(88, 166, 255, 0.3);
+}
+
+.parse-status.error {
+    background: rgba(248, 81, 73, 0.15);
+    color: var(--accent-error);
+    border: 1px solid rgba(248, 81, 73, 0.3);
+}
+
+.parse-status.success {
+    background: rgba(63, 185, 80, 0.15);
+    color: var(--accent-success);
+    border: 1px solid rgba(63, 185, 80, 0.3);
+}
+
+.parsed-problem {
+    margin-top: 16px;
+    padding: 16px;
+    background: var(--bg-tertiary);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-color);
+}
+
+.problem-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 12px;
+}
+
+.problem-header h3 {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.problem-limits {
+    display: flex;
+    gap: 10px;
+}
+
+.problem-limits span {
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: var(--radius-sm);
+    background: var(--bg-primary);
+    color: var(--text-secondary);
+}
+
+.sample-tests {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 12px;
+    max-height: 250px;
+    overflow-y: auto;
+}
+
+.sample-test {
+    display: flex;
+    gap: 10px;
+}
+
+.sample-test>div {
+    flex: 1;
+    background: var(--bg-primary);
+    padding: 8px;
+    border-radius: var(--radius-sm);
+    font-family: var(--font-mono);
+    font-size: 12px;
+}
+
+.sample-test label {
+    display: block;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+    font-family: var(--font-ui);
+}
+
+.sample-test pre {
+    margin: 0;
+    white-space: pre-wrap;
+    color: var(--text-primary);
+}
+
+/* ========================================
+   Submit Modal
+   ======================================== */
+.submit-modal {
+    max-width: 450px;
+}
+
+.submit-info {
+    background: rgba(88, 166, 255, 0.1);
+    border: 1px solid rgba(88, 166, 255, 0.3);
+    padding: 12px 14px;
+    border-radius: var(--radius-md);
+    margin-bottom: 16px;
+}
+
+.submit-info p {
+    font-size: 13px;
+    color: var(--accent-primary);
+    margin: 0;
+}
+
+.form-row {
+    display: flex;
+    gap: 12px;
+}
+
+.form-row .form-group {
+    flex: 1;
+}
+
+.form-group select {
+    width: 100%;
+    padding: 10px 12px;
+    font-size: 14px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    color: var(--text-primary);
+    cursor: pointer;
+}
+
+.form-group select:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+}
+
+.submit-btn {
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
+    border-color: #10b981 !important;
+}
+
+.submit-btn:hover {
+    background: linear-gradient(135deg, #059669 0%, #047857 100%) !important;
+}
+
+/* ========================================
+   Toast Notifications
+   ======================================== */
+.toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%) translateY(100px);
+    padding: 12px 24px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 500;
+    box-shadow: var(--shadow-lg);
+    z-index: 1000;
+    opacity: 0;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.toast.show {
+    transform: translateX(-50%) translateY(0);
+    opacity: 1;
+}
+
+.toast.success {
+    background: rgba(63, 185, 80, 0.2);
+    border-color: var(--accent-success);
+    color: var(--accent-success);
+}
+
+.toast.error {
+    background: rgba(248, 81, 73, 0.2);
+    border-color: var(--accent-error);
+    color: var(--accent-error);
+}
+
+/* ========================================
+   Autocomplete Dropdown (CodeMirror Hints)
+   ======================================== */
+.CodeMirror-hints {
+    position: absolute;
+    z-index: 100;
+    overflow-y: auto;
+    max-height: 280px;
+    min-width: 300px;
+    max-width: 450px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    padding: 4px 0;
+}
+
+.CodeMirror-hint {
+    padding: 6px 12px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--text-primary);
+    white-space: nowrap;
+    transition: background 0.1s;
+}
+
+.CodeMirror-hint:hover {
+    background: var(--bg-tertiary);
+}
+
+.CodeMirror-hint-active {
+    background: var(--accent-primary) !important;
+    color: white !important;
+}
+
+.CodeMirror-hint-active .hint-type,
+.CodeMirror-hint-active .hint-doc {
+    color: rgba(255, 255, 255, 0.8) !important;
+}
+
+.hint-icon {
+    font-size: 10px;
+    width: 18px;
+    height: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 3px;
+    flex-shrink: 0;
+}
+
+.hint-icon.function {
+    background: rgba(88, 166, 255, 0.2);
+    color: var(--accent-primary);
+}
+
+.hint-icon.class {
+    background: rgba(210, 153, 34, 0.2);
+    color: var(--accent-warning);
+}
+
+.hint-icon.method {
+    background: rgba(138, 135, 232, 0.2);
+    color: #a78bfa;
+}
+
+.hint-icon.variable {
+    background: rgba(63, 185, 80, 0.2);
+    color: var(--accent-success);
+}
+
+.hint-icon.constant {
+    background: rgba(248, 81, 73, 0.2);
+    color: var(--accent-error);
+}
+
+.hint-icon.decorator {
+    background: rgba(240, 147, 251, 0.2);
+    color: #f093fb;
+}
+
+.hint-icon.snippet {
+    background: rgba(45, 212, 191, 0.2);
+    color: #2dd4bf;
+}
+
+.hint-name {
+    font-weight: 500;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.hint-signature {
+    font-size: 10px;
+    color: var(--text-muted);
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.hint-doc {
+    font-size: 10px;
+    color: var(--text-secondary);
+    margin-left: auto;
+    max-width: 150px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Autocomplete loading indicator */
+.hint-loading {
+    padding: 12px;
+    text-align: center;
+    color: var(--text-muted);
+    font-style: italic;
+}
+
+/* Parse Problem Button Special Style */
+#parseProblemBtn span,
+#submitCodeBtn span {
+    font-size: 14px;
+}
+
+/* ========================================
+   Additional Modal Styles
+   ======================================== */
+.modal-content.problem-parser-modal,
+.modal-content.submit-modal {
+    animation: modalSlideIn 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes modalSlideIn {
+    from {
+        opacity: 0;
+        transform: translateY(-20px) scale(0.95);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}

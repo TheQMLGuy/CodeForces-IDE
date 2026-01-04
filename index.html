@@ -89,6 +89,12 @@
                 <button class="header-btn" id="themeToggleBtn" title="Toggle Theme">
                     <span id="themeIcon">🌙</span>
                 </button>
+                <button class="header-btn" id="parseProblemBtn" title="Parse Codeforces Problem">
+                    <span>📥</span> Parse
+                </button>
+                <button class="header-btn submit-btn" id="submitCodeBtn" title="Submit to Codeforces">
+                    <span>🚀</span> Submit
+                </button>
                 <button class="header-btn" id="snippetsBtn" title="Snippets">
                     <span>✂</span> Snippets
                 </button>
@@ -148,7 +154,10 @@ print(sum(arr))
                     <div class="io-box">
                         <div class="section-header">
                             <span>📤 Output</span>
-                            <span class="exec-time" id="execTime"></span>
+                            <div class="exec-stats">
+                                <span class="exec-time" id="execTime" title="Execution Time"></span>
+                                <span class="exec-memory" id="execMemory" title="Memory Usage"></span>
+                            </div>
                         </div>
                         <div id="outputArea" class="output-area">
                             <span class="output-placeholder">Output...</span>
@@ -245,6 +254,81 @@ print(sum(arr))
                 </div>
             </div>
         </div>
+
+        <!-- Problem Parser Modal -->
+        <div id="problemParserModal" class="modal hidden">
+            <div class="modal-content problem-parser-modal">
+                <div class="modal-header">
+                    <h2>📥 Parse Codeforces Problem</h2>
+                    <button class="modal-close" id="closeProblemParserBtn">×</button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label for="problemUrl">Problem URL</label>
+                        <div class="url-input-group">
+                            <input type="text" id="problemUrl"
+                                placeholder="https://codeforces.com/problemset/problem/1/A" />
+                            <button class="header-btn primary" id="parseBtn">Parse</button>
+                        </div>
+                        <p class="form-hint">Paste a Codeforces problem URL to automatically import sample test cases
+                        </p>
+                    </div>
+                    <div id="parseStatus" class="parse-status hidden"></div>
+                    <div id="parsedProblem" class="parsed-problem hidden">
+                        <div class="problem-header">
+                            <h3 id="problemTitle"></h3>
+                            <div class="problem-limits">
+                                <span id="timeLimit"></span>
+                                <span id="memoryLimit"></span>
+                            </div>
+                        </div>
+                        <div id="sampleTests" class="sample-tests"></div>
+                        <button class="header-btn primary" id="importTestsBtn">Import Test Cases</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Submit Code Modal -->
+        <div id="submitModal" class="modal hidden">
+            <div class="modal-content submit-modal">
+                <div class="modal-header">
+                    <h2>🚀 Submit to Codeforces</h2>
+                    <button class="modal-close" id="closeSubmitBtn">×</button>
+                </div>
+                <div class="modal-body">
+                    <div class="submit-info">
+                        <p>Code will be copied to clipboard and Codeforces submission page will open in a new tab.</p>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="contestId">Contest ID</label>
+                            <input type="text" id="contestId" placeholder="e.g., 1850" />
+                        </div>
+                        <div class="form-group">
+                            <label for="problemLetter">Problem</label>
+                            <select id="problemLetter">
+                                <option value="A">A</option>
+                                <option value="B">B</option>
+                                <option value="C">C</option>
+                                <option value="D">D</option>
+                                <option value="E">E</option>
+                                <option value="F">F</option>
+                                <option value="G">G</option>
+                                <option value="H">H</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-actions">
+                        <button class="header-btn" id="cancelSubmitBtn">Cancel</button>
+                        <button class="header-btn primary" id="copyAndSubmitBtn">📋 Copy & Open Codeforces</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Toast Notification -->
+        <div id="toast" class="toast hidden"></div>
     </div>
 
     <!-- Scripts -->
@@ -254,6 +338,7 @@ print(sum(arr))
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/matchbrackets.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/closebrackets.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/selection/active-line.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/hint/show-hint.min.js"></script>
     <script src="auth.js"></script>
     <script src="firebase-sync.js"></script>
     <script src="app.js"></script>

@@ -16,6 +16,10 @@ let timerSeconds = 0;
 let timerInterval = null;
 let timerRunning = false;
 
+// Problem parser state
+let currentProblem = null;
+let autocompleteData = null;
+
 // Snippets for competitive programming (mutable - can be edited by user)
 let userSnippets = {
     "inp": { name: "Integer Input", code: "n = int(input())" },
@@ -118,7 +122,36 @@ const elements = {
 
     // Complexity
     complexityPanel: document.getElementById('complexityPanel'),
-    analyzeComplexityBtn: document.getElementById('analyzeComplexityBtn')
+    analyzeComplexityBtn: document.getElementById('analyzeComplexityBtn'),
+
+    // Execution Stats
+    execMemory: document.getElementById('execMemory'),
+
+    // Problem Parser Modal
+    parseProblemBtn: document.getElementById('parseProblemBtn'),
+    problemParserModal: document.getElementById('problemParserModal'),
+    closeProblemParserBtn: document.getElementById('closeProblemParserBtn'),
+    problemUrl: document.getElementById('problemUrl'),
+    parseBtn: document.getElementById('parseBtn'),
+    parseStatus: document.getElementById('parseStatus'),
+    parsedProblem: document.getElementById('parsedProblem'),
+    problemTitle: document.getElementById('problemTitle'),
+    timeLimit: document.getElementById('timeLimit'),
+    memoryLimit: document.getElementById('memoryLimit'),
+    sampleTests: document.getElementById('sampleTests'),
+    importTestsBtn: document.getElementById('importTestsBtn'),
+
+    // Submit Modal
+    submitCodeBtn: document.getElementById('submitCodeBtn'),
+    submitModal: document.getElementById('submitModal'),
+    closeSubmitBtn: document.getElementById('closeSubmitBtn'),
+    contestId: document.getElementById('contestId'),
+    problemLetter: document.getElementById('problemLetter'),
+    cancelSubmitBtn: document.getElementById('cancelSubmitBtn'),
+    copyAndSubmitBtn: document.getElementById('copyAndSubmitBtn'),
+
+    // Toast
+    toast: document.getElementById('toast')
 };
 
 // Test cases storage
@@ -380,6 +413,7 @@ function initEditor() {
         editor.focus();
         initComplexityGutter(); // Setup complexity gutter scroll sync
         updateLineComplexity(); // Initial complexity annotations
+        setupAutocomplete(editor); // Enable PyCharm-style autocomplete
     }, 100);
 }
 
@@ -512,11 +546,19 @@ async function runCode(silent = false) {
     if (!pyodide || isRunning) return;
 
     isRunning = true;
+    const startTime = performance.now();
 
     // Only show running state if NOT silent
     if (!silent) {
         elements.outputArea.textContent = 'Running...';
         elements.outputArea.className = 'output-area';
+        if (elements.execTime) {
+            elements.execTime.textContent = '';
+            elements.execTime.className = 'exec-time';
+        }
+        if (elements.execMemory) {
+            elements.execMemory.textContent = '';
+        }
     }
 
     const code = editor.getValue();
@@ -544,11 +586,49 @@ def input(prompt=''):
         // Run user code
         await pyodide.runPythonAsync(code);
 
+        const endTime = performance.now();
+        const execTimeMs = endTime - startTime;
+
         // Fetch output ONLY if not silent
         if (!silent) {
             const output = await pyodide.runPythonAsync('_captured_output.getvalue()');
             elements.outputArea.textContent = output || '(no output)';
             elements.outputArea.className = 'output-area success';
+
+            // Display execution time with color coding
+            if (elements.execTime) {
+                const timeMs = Math.round(execTimeMs);
+                elements.execTime.textContent = `⏱ ${timeMs}ms`;
+                if (timeMs < 100) {
+                    elements.execTime.className = 'exec-time fast';
+                } else if (timeMs < 500) {
+                    elements.execTime.className = 'exec-time medium';
+                } else {
+                    elements.execTime.className = 'exec-time slow';
+                }
+            }
+
+            // Estimate memory usage
+            if (elements.execMemory) {
+                try {
+                    const memoryInfo = await pyodide.runPythonAsync(`
+import sys
+try:
+    # Get approximate memory usage of user-defined variables
+    _user_vars = {k: v for k, v in globals().items() if not k.startswith('_')}
+    _mem = sum(sys.getsizeof(v) for v in _user_vars.values())
+    _mem / 1024  # KB
+except:
+    0
+                    `);
+                    const memKB = Math.round(memoryInfo);
+                    if (memKB > 0) {
+                        elements.execMemory.textContent = `💾 ${memKB < 1024 ? memKB + 'KB' : (memKB / 1024).toFixed(1) + 'MB'}`;
+                    }
+                } catch (e) {
+                    // Memory tracking is optional
+                }
+            }
         }
 
         // ALWAYS fetch variables (Live)
@@ -1541,6 +1621,415 @@ function setupNewFeatureListeners() {
     if (elements.analyzeComplexityBtn) {
         elements.analyzeComplexityBtn.addEventListener('click', analyzeComplexity);
     }
+
+    // Problem Parser
+    if (elements.parseProblemBtn) {
+        elements.parseProblemBtn.addEventListener('click', () => {
+            elements.problemParserModal.classList.remove('hidden');
+        });
+    }
+    if (elements.closeProblemParserBtn) {
+        elements.closeProblemParserBtn.addEventListener('click', () => {
+            elements.problemParserModal.classList.add('hidden');
+        });
+    }
+    if (elements.parseBtn) {
+        elements.parseBtn.addEventListener('click', parseProblem);
+    }
+    if (elements.importTestsBtn) {
+        elements.importTestsBtn.addEventListener('click', importParsedTests);
+    }
+    if (elements.problemParserModal) {
+        elements.problemParserModal.addEventListener('click', (e) => {
+            if (e.target === elements.problemParserModal) {
+                elements.problemParserModal.classList.add('hidden');
+            }
+        });
+    }
+
+    // Submit Modal
+    if (elements.submitCodeBtn) {
+        elements.submitCodeBtn.addEventListener('click', () => {
+            // Auto-fill from current problem if available
+            if (currentProblem) {
+                elements.contestId.value = currentProblem.contestId || '';
+                elements.problemLetter.value = currentProblem.problemLetter || 'A';
+            }
+            elements.submitModal.classList.remove('hidden');
+        });
+    }
+    if (elements.closeSubmitBtn) {
+        elements.closeSubmitBtn.addEventListener('click', () => {
+            elements.submitModal.classList.add('hidden');
+        });
+    }
+    if (elements.cancelSubmitBtn) {
+        elements.cancelSubmitBtn.addEventListener('click', () => {
+            elements.submitModal.classList.add('hidden');
+        });
+    }
+    if (elements.copyAndSubmitBtn) {
+        elements.copyAndSubmitBtn.addEventListener('click', copyAndSubmit);
+    }
+    if (elements.submitModal) {
+        elements.submitModal.addEventListener('click', (e) => {
+            if (e.target === elements.submitModal) {
+                elements.submitModal.classList.add('hidden');
+            }
+        });
+    }
+}
+
+// ============================================
+// Toast Notifications
+// ============================================
+function showToast(message, type = 'success') {
+    if (!elements.toast) return;
+
+    elements.toast.textContent = message;
+    elements.toast.className = `toast ${type}`;
+
+    // Force reflow for animation
+    elements.toast.offsetHeight;
+    elements.toast.classList.add('show');
+
+    setTimeout(() => {
+        elements.toast.classList.remove('show');
+    }, 3000);
+}
+
+// ============================================
+// Problem Parser
+// ============================================
+async function parseProblem() {
+    const url = elements.problemUrl.value.trim();
+
+    if (!url) {
+        showToast('Please enter a problem URL', 'error');
+        return;
+    }
+
+    // Parse the URL to extract contest ID and problem letter
+    const urlPatterns = [
+        /codeforces\.com\/problemset\/problem\/(\d+)\/([A-Za-z]\d*)/,
+        /codeforces\.com\/contest\/(\d+)\/problem\/([A-Za-z]\d*)/,
+        /codeforces\.com\/gym\/(\d+)\/problem\/([A-Za-z]\d*)/
+    ];
+
+    let contestId = null, problemLetter = null;
+    for (const pattern of urlPatterns) {
+        const match = url.match(pattern);
+        if (match) {
+            contestId = match[1];
+            problemLetter = match[2].toUpperCase();
+            break;
+        }
+    }
+
+    if (!contestId || !problemLetter) {
+        showToast('Invalid Codeforces URL format', 'error');
+        return;
+    }
+
+    // Show loading state
+    elements.parseStatus.classList.remove('hidden');
+    elements.parseStatus.className = 'parse-status loading';
+    elements.parseStatus.textContent = '⏳ Fetching problem...';
+    elements.parsedProblem.classList.add('hidden');
+
+    try {
+        // Use CORS proxy to fetch the problem page
+        const corsProxy = 'https://api.allorigins.win/raw?url=';
+        const problemUrl = `https://codeforces.com/problemset/problem/${contestId}/${problemLetter}`;
+
+        const response = await fetch(corsProxy + encodeURIComponent(problemUrl));
+
+        if (!response.ok) {
+            throw new Error('Failed to fetch problem');
+        }
+
+        const html = await response.text();
+
+        // Parse the HTML
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, 'text/html');
+
+        // Extract problem title
+        const titleElement = doc.querySelector('.title');
+        const problemTitle = titleElement ? titleElement.textContent.trim() : `Problem ${problemLetter}`;
+
+        // Extract time and memory limits
+        const timeLimitElement = doc.querySelector('.time-limit');
+        const memoryLimitElement = doc.querySelector('.memory-limit');
+        const timeLimit = timeLimitElement ? timeLimitElement.textContent.replace('time limit per test', '').trim() : 'N/A';
+        const memoryLimit = memoryLimitElement ? memoryLimitElement.textContent.replace('memory limit per test', '').trim() : 'N/A';
+
+        // Extract sample tests
+        const sampleInputs = doc.querySelectorAll('.sample-test .input pre');
+        const sampleOutputs = doc.querySelectorAll('.sample-test .output pre');
+
+        const samples = [];
+        for (let i = 0; i < sampleInputs.length; i++) {
+            samples.push({
+                input: sampleInputs[i].textContent.trim(),
+                output: sampleOutputs[i] ? sampleOutputs[i].textContent.trim() : ''
+            });
+        }
+
+        // Store current problem info
+        currentProblem = {
+            contestId,
+            problemLetter,
+            title: problemTitle,
+            timeLimit,
+            memoryLimit,
+            samples
+        };
+
+        // Update UI
+        elements.parseStatus.className = 'parse-status success';
+        elements.parseStatus.textContent = `✓ Found ${samples.length} sample test case(s)`;
+
+        elements.problemTitle.textContent = problemTitle;
+        elements.timeLimit.textContent = `⏱ ${timeLimit}`;
+        elements.memoryLimit.textContent = `💾 ${memoryLimit}`;
+
+        // Render sample tests
+        elements.sampleTests.innerHTML = samples.map((sample, i) => `
+            <div class="sample-test">
+                <div>
+                    <label>Input ${i + 1}</label>
+                    <pre>${escapeHtml(sample.input)}</pre>
+                </div>
+                <div>
+                    <label>Output ${i + 1}</label>
+                    <pre>${escapeHtml(sample.output)}</pre>
+                </div>
+            </div>
+        `).join('');
+
+        elements.parsedProblem.classList.remove('hidden');
+
+    } catch (error) {
+        console.error('Problem parsing error:', error);
+        elements.parseStatus.className = 'parse-status error';
+        elements.parseStatus.textContent = `✗ Failed to parse: ${error.message}`;
+    }
+}
+
+function importParsedTests() {
+    if (!currentProblem || !currentProblem.samples.length) {
+        showToast('No test cases to import', 'error');
+        return;
+    }
+
+    // Add parsed tests to test cases
+    currentProblem.samples.forEach((sample, i) => {
+        testCases.push({
+            id: testCases.length + 1,
+            name: `Sample ${i + 1}`,
+            input: sample.input,
+            expected: sample.output,
+            actual: '',
+            status: ''
+        });
+    });
+
+    saveTestCases();
+    renderTestCases();
+
+    showToast(`Imported ${currentProblem.samples.length} test case(s)`, 'success');
+    elements.problemParserModal.classList.add('hidden');
+}
+
+// ============================================
+// Code Submission
+// ============================================
+async function copyAndSubmit() {
+    const contestId = elements.contestId.value.trim();
+    const problemLetter = elements.problemLetter.value;
+
+    if (!contestId) {
+        showToast('Please enter a Contest ID', 'error');
+        return;
+    }
+
+    const code = editor.getValue();
+
+    try {
+        // Copy code to clipboard
+        await navigator.clipboard.writeText(code);
+
+        // Open Codeforces submission page
+        const submitUrl = `https://codeforces.com/contest/${contestId}/submit/${problemLetter}`;
+        window.open(submitUrl, '_blank');
+
+        showToast('Code copied! Paste in Codeforces submission page', 'success');
+        elements.submitModal.classList.add('hidden');
+
+    } catch (error) {
+        console.error('Clipboard error:', error);
+        showToast('Failed to copy code', 'error');
+    }
+}
+
+// ============================================
+// Autocomplete
+// ============================================
+async function loadAutocompleteData() {
+    try {
+        const response = await fetch('python-autocomplete.json');
+        autocompleteData = await response.json();
+        console.log('Autocomplete data loaded');
+    } catch (error) {
+        console.error('Failed to load autocomplete data:', error);
+        autocompleteData = {};
+    }
+}
+
+function pythonHint(cm) {
+    const cursor = cm.getCursor();
+    const line = cm.getLine(cursor.line);
+    const end = cursor.ch;
+
+    // Find the start of the current word
+    let start = end;
+    while (start > 0 && /[\w.]/.test(line.charAt(start - 1))) {
+        start--;
+    }
+
+    const prefix = line.substring(start, end).toLowerCase();
+
+    // Need at least 2 characters to trigger
+    if (prefix.length < 2) {
+        return null;
+    }
+
+    const completions = [];
+
+    // Get user-defined variables from code
+    const code = cm.getValue();
+    const userVars = parseVariables(code);
+
+    // Add user variables
+    userVars.forEach(v => {
+        if (v.name.toLowerCase().startsWith(prefix)) {
+            completions.push({
+                text: v.name,
+                displayText: v.name,
+                className: 'hint-variable',
+                render: (element, self, data) => {
+                    element.innerHTML = `
+                        <span class="hint-icon variable">x</span>
+                        <span class="hint-name">${v.name}</span>
+                        <span class="hint-doc">${v.type}</span>
+                    `;
+                }
+            });
+        }
+    });
+
+    // Add snippets
+    Object.entries(userSnippets).forEach(([keyword, snippet]) => {
+        if (keyword.toLowerCase().startsWith(prefix)) {
+            completions.push({
+                text: keyword,
+                displayText: keyword,
+                className: 'hint-snippet',
+                hint: (cm, data, completion) => {
+                    // Insert snippet code instead of just keyword
+                    const from = { line: cursor.line, ch: start };
+                    const to = { line: cursor.line, ch: end };
+                    cm.replaceRange(snippet.code, from, to);
+                },
+                render: (element, self, data) => {
+                    element.innerHTML = `
+                        <span class="hint-icon snippet">✂</span>
+                        <span class="hint-name">${keyword}</span>
+                        <span class="hint-doc">${snippet.name}</span>
+                    `;
+                }
+            });
+        }
+    });
+
+    // Add library completions from autocomplete data
+    if (autocompleteData) {
+        Object.entries(autocompleteData).forEach(([category, items]) => {
+            Object.entries(items).forEach(([name, info]) => {
+                if (name.toLowerCase().startsWith(prefix)) {
+                    const iconClass = info.type || 'function';
+                    const iconChar = iconClass === 'class' ? 'C' :
+                        iconClass === 'method' ? 'm' :
+                            iconClass === 'constant' ? '◆' :
+                                iconClass === 'decorator' ? '@' : 'ƒ';
+
+                    completions.push({
+                        text: name,
+                        displayText: name,
+                        className: `hint-${iconClass}`,
+                        render: (element, self, data) => {
+                            element.innerHTML = `
+                                <span class="hint-icon ${iconClass}">${iconChar}</span>
+                                <span class="hint-name">${name}</span>
+                                <span class="hint-signature">${info.signature || ''}</span>
+                                <span class="hint-doc">${info.doc || ''}</span>
+                            `;
+                        }
+                    });
+                }
+            });
+        });
+    }
+
+    // Sort and limit results
+    completions.sort((a, b) => {
+        // Prioritize user variables, then snippets, then library
+        const aScore = a.className.includes('variable') ? 0 :
+            a.className.includes('snippet') ? 1 : 2;
+        const bScore = b.className.includes('variable') ? 0 :
+            b.className.includes('snippet') ? 1 : 2;
+        if (aScore !== bScore) return aScore - bScore;
+        return a.text.length - b.text.length;
+    });
+
+    if (completions.length === 0) {
+        return null;
+    }
+
+    return {
+        list: completions.slice(0, 20),
+        from: { line: cursor.line, ch: start },
+        to: { line: cursor.line, ch: end }
+    };
+}
+
+function setupAutocomplete(cm) {
+    // Trigger autocomplete on typing
+    cm.on('inputRead', function (cm, change) {
+        if (change.origin !== '+input') return;
+
+        const cursor = cm.getCursor();
+        const line = cm.getLine(cursor.line);
+        const ch = cursor.ch;
+
+        // Check if we have at least 2 characters of a word
+        let wordStart = ch;
+        while (wordStart > 0 && /[\w]/.test(line.charAt(wordStart - 1))) {
+            wordStart--;
+        }
+
+        const word = line.substring(wordStart, ch);
+
+        if (word.length >= 2 && /^\w+$/.test(word)) {
+            cm.showHint({
+                hint: pythonHint,
+                completeSingle: false,
+                closeCharacters: /[\s()\[\]{};:>,]/,
+                closeOnUnfocus: true
+            });
+        }
+    });
 }
 
 // ============================================
@@ -1552,4 +2041,5 @@ document.addEventListener('DOMContentLoaded', () => {
     initTabs();
     initTestCases();
     setupNewFeatureListeners();
+    loadAutocompleteData();
 });
