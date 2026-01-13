@@ -436,6 +436,7 @@ function initEditor() {
         mode: 'python',
         theme: 'material-darker',
         lineNumbers: true,
+        gutters: ["complexity-gutter", "CodeMirror-linenumbers"], // Custom gutter for complexity
         matchBrackets: true,
         autoCloseBrackets: true,
         indentUnit: 4,
@@ -488,9 +489,9 @@ function setupEventListeners() {
     // Refresh variables
     elements.refreshVarsBtn.addEventListener('click', updateVariables);
 
-    // Timer
-    elements.timerStartBtn.addEventListener('click', toggleTimer);
-    elements.timerResetBtn.addEventListener('click', resetTimer);
+    // Timer (only if elements exist)
+    if (elements.timerStartBtn) elements.timerStartBtn.addEventListener('click', toggleTimer);
+    if (elements.timerResetBtn) elements.timerResetBtn.addEventListener('click', resetTimer);
 
     // Snippets modal
     elements.snippetsBtn.addEventListener('click', () => {
@@ -954,6 +955,7 @@ async function updateVariables() {
         }
 
         if (v.type === 'list') {
+            actionButtons += `<button class="var-action" onclick="insertCode('${v.name}_sum = sum(${v.name})\\\\nprint(${v.name}_sum)')" title="Sum">∑</button>`;
             actionButtons += `<button class="var-action" onclick="insertCode('for item in ${v.name}:\\\\n    print(item)')" title="Loop">🔄</button>`;
         }
 
@@ -1409,44 +1411,20 @@ function renderComplexity(analysis) {
 // ============================================
 // Per-Line Complexity Annotations (Time | Space)
 // ============================================
+// ============================================
+// Per-Line Complexity Annotations (Native Gutter)
+// ============================================
 function updateLineComplexity() {
     if (!editor) return;
 
-    // Create or get complexity gutter container
-    let gutterEl = document.getElementById('complexity-gutter');
-    if (!gutterEl) {
-        gutterEl = document.createElement('div');
-        gutterEl.id = 'complexity-gutter';
-
-        const wrapper = editor.getWrapperElement();
-        wrapper.style.position = 'relative';
-        wrapper.appendChild(gutterEl);
-
-        // Add header
-        const header = document.createElement('div');
-        header.className = 'cg-header';
-        header.innerHTML = '<span style="color:#7ee787">T</span><span style="opacity:0.5">|</span><span style="color:#a371f7">S</span>';
-        gutterEl.appendChild(header);
-
-        // Add content container
-        const content = document.createElement('div');
-        content.id = 'complexity-gutter-content';
-        gutterEl.appendChild(content);
-    }
-
-    const contentEl = document.getElementById('complexity-gutter-content');
-    if (!contentEl) return;
+    editor.clearGutter("complexity-gutter");
 
     const code = editor.getValue();
     const lines = code.split('\n');
-    const lineHeight = editor.defaultTextHeight();
-    const scrollInfo = editor.getScrollInfo();
 
     // Track loop depth for complexity
     let loopDepth = 0;
     let loopIndents = [];
-
-    let html = '';
 
     lines.forEach((line, idx) => {
         const trimmed = line.trim();
@@ -1458,13 +1436,16 @@ function updateLineComplexity() {
             if (loopDepth > 0) loopDepth--;
         }
 
-        let timeC = '1';
-        let spaceC = '1';
+        let timeC = '0';
+        let spaceC = '0';
         let colorClass = 'c-const';
+        let spaceColor = 'c-const';
 
         if (!trimmed || trimmed.startsWith('#')) {
-            html += `<div class="cg-line" style="height:${lineHeight}px;line-height:${lineHeight}px;"></div>`;
-            return;
+            // Defaults 0
+        } else {
+            timeC = '1';
+            spaceC = '1';
         }
 
         // Detect loop start
@@ -1476,23 +1457,17 @@ function updateLineComplexity() {
             else if (loopDepth === 2) { timeC = 'n²'; colorClass = 'c-quad'; }
             else { timeC = 'n³'; colorClass = 'c-cubic'; }
         }
-        // Sorting - time O(n log n), space O(n)
         else if (/.sort\(/.test(trimmed) || /sorted\(/.test(trimmed)) {
             timeC = 'nlogn';
-            spaceC = 'n';
             colorClass = 'c-nlogn';
         }
-        // List/array creation - space O(n)
         else if (/\[\s*\]|list\(|=\s*\[/.test(trimmed) || /range\(/.test(trimmed) && /list/.test(trimmed)) {
             if (loopDepth > 0) {
                 timeC = loopDepth === 1 ? 'n' : loopDepth === 2 ? 'n²' : 'n³';
             }
-            spaceC = 'n';
             colorClass = loopDepth > 0 ? (loopDepth === 1 ? 'c-linear' : loopDepth === 2 ? 'c-quad' : 'c-cubic') : 'c-space';
         }
-        // Dict/set creation - space O(n)
         else if (/\{\s*\}|dict\(|set\(|defaultdict|Counter/.test(trimmed)) {
-            spaceC = 'n';
             if (loopDepth > 0) {
                 timeC = loopDepth === 1 ? 'n' : loopDepth === 2 ? 'n²' : 'n³';
                 colorClass = loopDepth === 1 ? 'c-linear' : loopDepth === 2 ? 'c-quad' : 'c-cubic';
@@ -1500,49 +1475,33 @@ function updateLineComplexity() {
                 colorClass = 'c-space';
             }
         }
-        // Binary search - time O(log n)
         else if (/bisect/.test(trimmed)) {
             timeC = 'logn';
             colorClass = 'c-log';
         }
-        // Append inside loop - potential O(n) amortized
         else if (/\.append\(/.test(trimmed) && loopDepth > 0) {
             timeC = loopDepth === 1 ? 'n' : loopDepth === 2 ? 'n²' : 'n³';
-            spaceC = 'n';
             colorClass = loopDepth === 1 ? 'c-linear' : loopDepth === 2 ? 'c-quad' : 'c-cubic';
         }
-        // Inside loop
         else if (loopDepth > 0) {
             if (loopDepth === 1) { timeC = 'n'; colorClass = 'c-linear'; }
             else if (loopDepth === 2) { timeC = 'n²'; colorClass = 'c-quad'; }
             else { timeC = 'n³'; colorClass = 'c-cubic'; }
         }
 
-        // Format: T|S with proper colors (same gradient for both)
-        const timeClass = colorClass;
-        const spaceClass = spaceC === 'n' ? 'c-linear' : 'c-const';  // Same colors as time
-        const display = `<span class="${timeClass}">${timeC}</span><span class="cg-sep">|</span><span class="${spaceClass}">${spaceC}</span>`;
-        html += `<div class="cg-line" style="height:${lineHeight}px;line-height:${lineHeight}px;">${display}</div>`;
+        // Create marker
+        const marker = document.createElement("div");
+        marker.className = "complexity-marker";
+        // Format: val |
+        marker.innerHTML = `<span class="${colorClass}">${timeC}</span><span class="cg-sep">|</span><span class="${spaceColor}">${spaceC}</span><span class="cg-sep">|</span>`;
+        if (timeC === '0') marker.style.opacity = '0.3';
+
+        editor.setGutterMarker(idx, "complexity-gutter", marker);
     });
-
-    contentEl.innerHTML = html;
-    contentEl.style.height = `${lines.length * lineHeight}px`;
-
-    // Sync scroll - offset by header height
-    const headerHeight = 18;
-    contentEl.style.marginTop = `-${scrollInfo.top}px`;
 }
 
-// Sync gutter scroll with editor
 function initComplexityGutter() {
-    if (!editor) return;
-    editor.on('scroll', () => {
-        const contentEl = document.getElementById('complexity-gutter-content');
-        if (contentEl) {
-            const scrollInfo = editor.getScrollInfo();
-            contentEl.style.marginTop = `-${scrollInfo.top}px`;
-        }
-    });
+    // No-op for native gutter
 }
 
 // ============================================
