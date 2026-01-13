@@ -441,8 +441,8 @@ function initEditor() {
     editor = CodeMirror.fromTextArea(document.getElementById('codeEditor'), {
         mode: 'python',
         theme: 'material-darker',
-        lineNumbers: true,
-        gutters: ["complexity-gutter", "CodeMirror-linenumbers"], // Custom gutter for complexity
+        lineNumbers: false,
+        gutters: ["complexity-gutter"], // Custom gutter for complexity + line numbers
         matchBrackets: true,
         autoCloseBrackets: true,
         indentUnit: 4,
@@ -452,7 +452,7 @@ function initEditor() {
         extraKeys: {
             'Tab': handleTab,
             'Shift-Enter': () => runCode(false), // Explicit run
-            'Space': handleSmartSpace,
+            'Space': handleCustomSmartSpace,
             'Enter': handleSmartEnter
         }
     });
@@ -485,6 +485,41 @@ function initEditor() {
         initComplexityGutter(); // Setup complexity gutter scroll sync
         updateLineComplexity(); // Initial complexity annotations
         setupAutocomplete(editor); // Enable PyCharm-style autocomplete
+
+        // Variable Highlighting on Hover
+        editor.on('cursorActivity', debounce(() => {
+            // Remove old highlights
+            editor.getAllMarks().forEach(m => {
+                if (m.className === 'cm-var-highlight') m.clear();
+            });
+
+            const cursor = editor.getCursor();
+            const token = editor.getTokenAt(cursor);
+
+            if (token && token.string && /^[a-zA-Z_]\w*$/.test(token.string) && token.type === 'variable') {
+                const varName = token.string;
+                const cursorIndex = editor.indexFromPos(cursor);
+                const content = editor.getValue();
+
+                // Find all occurrences
+                let pos = 0;
+                while (pos < content.length) {
+                    const idx = content.indexOf(varName, pos);
+                    if (idx === -1) break;
+
+                    // Verify whole word match
+                    const nextChar = content[idx + varName.length];
+                    const prevChar = idx > 0 ? content[idx - 1] : ' ';
+                    if ((!nextChar || !/\w/.test(nextChar)) && (!prevChar || !/\w/.test(prevChar))) {
+                        // It's a match
+                        const startPos = editor.posFromIndex(idx);
+                        const endPos = editor.posFromIndex(idx + varName.length);
+                        editor.markText(startPos, endPos, { className: 'cm-var-highlight' });
+                    }
+                    pos = idx + varName.length;
+                }
+            }
+        }, 100)); // Debounce
     }, 100);
 }
 
@@ -704,6 +739,9 @@ except:
 
         // ALWAYS fetch variables (Live)
         await fetchVariableValues();
+
+        // Track loop iterations
+        await trackLoopIterations(code);
 
     } catch (err) {
         if (!silent) {
@@ -1073,64 +1111,189 @@ function loadSnippetsFromStorage() {
 }
 
 // ============================================
+// Variable Detection & Highlighting
+// ============================================
+let forcedHighlights = [];
+
+function highlightVariable(name) {
+    if (!editor) return;
+    clearHighlights();
+
+    // Try CodeMirror searchcursor
+    if (editor.getSearchCursor) {
+        const cursor = editor.getSearchCursor(new RegExp(`\\b${name}\\b`), { line: 0, ch: 0 });
+        while (cursor.findNext()) {
+            const mark = editor.markText(cursor.from(), cursor.to(), { className: 'cm-var-highlight' });
+            forcedHighlights.push(mark);
+        }
+    } else {
+        // Fallback: Regex on document text
+        const text = editor.getValue();
+        const regex = new RegExp(`\\b${name}\\b`, 'g');
+        let match;
+        while ((match = regex.exec(text)) !== null) {
+            const start = editor.posFromIndex(match.index);
+            const end = editor.posFromIndex(match.index + match[0].length);
+            const mark = editor.markText(start, end, { className: 'cm-var-highlight' });
+            forcedHighlights.push(mark);
+        }
+    }
+}
+
+function clearHighlights() {
+    forcedHighlights.forEach(m => m.clear());
+    forcedHighlights = [];
+}
+
+// ============================================
 // Variable Detection
 // ============================================
 async function updateVariables() {
     const code = editor.getValue();
     const vars = parseVariables(code);
 
-    if (vars.length === 0) {
+    // Grouping Logic
+    const groups = {
+        'input': [],
+        'loop': [],
+        'computation': [],
+        'inline': [],
+        'function': [],
+        'condition': []  // New group
+    };
+
+    vars.forEach(v => {
+        if (groups[v.category]) {
+            groups[v.category].push(v);
+        } else {
+            groups['computation'].push(v); // Default
+        }
+    });
+
+    // Add Conditions from iterationData
+    if (iterationData && iterationData.conditions) {
+        Object.entries(iterationData.conditions).forEach(([name, data]) => {
+            const values = data.values || [];
+            if (values.length > 0) {
+                const lastValue = values[values.length - 1];
+                groups['condition'].push({
+                    name: data.source || name,
+                    type: 'boolean',
+                    category: 'condition',
+                    value: lastValue
+                });
+            }
+        });
+    }
+
+    if (Object.values(groups).every(g => g.length === 0)) {
         elements.variablesPanel.innerHTML = '<div class="empty-state">No variables detected</div>';
         return;
     }
 
-    // Render variables with values and actions
-    elements.variablesPanel.innerHTML = vars.map(v => {
-        const value = variableValues[v.name];
-        // Use runtime type if available, else regex guess
-        const type = variableTypes[v.name] || v.type;
+    let html = '';
+    const groupTitles = {
+        'input': 'Input Variables',
+        'loop': 'Loop State',
+        'computation': 'Computation Results',
+        'inline': 'Inline / Temp',
+        'function': 'Functions',
+        'condition': 'Conditions' // Title
+    };
 
-        // Value display - using span for compact flex layout
-        const valueDisplay = value !== undefined ?
-            `<span class="var-value" title="${escapeHtml(String(value))}">${escapeHtml(String(value))}</span>` :
-            '<span class="var-value"></span>';
+    const renderGroup = (category, varsList) => {
+        if (varsList.length === 0) return '';
 
-        // Compact action buttons
-        let actionButtons = `<button class="var-action" onclick="insertCode('print(${v.name})')" title="Print">📋</button>`;
+        const listHtml = varsList.map(v => {
+            // Priority: v.value (for conditions) -> variableValues lookup -> undefined
+            let value = v.value;
+            if (value === undefined) {
+                value = variableValues[v.name];
+            }
 
-        if (['list', 'str', 'dict'].includes(v.type)) {
-            actionButtons += `<button class="var-action" onclick="insertCode('print(len(${v.name}))')" title="Len">📏</button>`;
-        }
+            // Use runtime type if available, else regex guess
+            const type = variableTypes[v.name] || v.type;
 
-        if (v.type === 'list') {
-            actionButtons += `<button class="var-action" onclick="insertCode('${v.name}_sum = sum(${v.name})\\\\nprint(${v.name}_sum)')" title="Sum">∑</button>`;
-            actionButtons += `<button class="var-action" onclick="insertCode('for item in ${v.name}:\\\\n    print(item)')" title="Loop">🔄</button>`;
-        }
+            // Value display - using span for compact flex layout
+            const valueDisplay = value !== undefined ?
+                `<span class="var-value" title="${escapeHtml(String(value))}">${escapeHtml(String(value))}</span>` :
+                '<span class="var-value"></span>';
+
+            // Compact action buttons - only for regular variables
+            let actionButtons = '';
+            if (v.type !== 'loop' && v.type !== 'function') {
+                actionButtons = `<button class="var-action" onclick="insertCode('print(${v.name})')" title="Print">📋</button>`;
+
+                if (['list', 'str', 'dict'].includes(v.type)) {
+                    actionButtons += `<button class="var-action" onclick="insertCode('print(len(${v.name}))')" title="Len">📏</button>`;
+                }
+
+                if (v.type === 'list') {
+                    actionButtons += `<button class="var-action" onclick="insertCode('${v.name}_sum = sum(${v.name})\\\\nprint(${v.name}_sum)')" title="Sum">∑</button>`;
+                    actionButtons += `<button class="var-action" onclick="insertCode('for item in ${v.name}:\\\\n    print(item)')" title="Loop">🔄</button>`;
+                }
+            }
+
+            // Special display for loop variables
+            let extraInfo = '';
+            if (v.type === 'loop' && v.loopInfo) {
+                extraInfo = `<div class="loop-info">${v.loopInfo.start}→${v.loopInfo.end}:${v.loopInfo.step}</div>`;
+            }
+
+            // Special display for functions
+            if (v.type === 'function') {
+                extraInfo = `<div class="func-return">→ ${escapeHtml(v.returnValue || 'None')}</div>`;
+            }
+
+            return `
+            <div class="var-item ${v.type === 'loop' ? 'var-loop' : ''} ${v.type === 'function' ? 'var-function' : ''}"
+                 onmouseenter="highlightVariable('${v.name}')" onmouseleave="clearHighlights()">
+                <div class="var-header">
+                    <div class="var-icon">${getTypeIcon(v.type)}</div>
+                    <span class="var-name" title="${v.name}">${v.name}</span>
+                    <div class="var-actions">
+                        ${actionButtons}
+                    </div>
+                    <span class="var-spacer"></span>
+                    <span class="var-type">${v.type}</span>
+                </div>
+                ${v.type === 'loop' || v.type === 'function' ? extraInfo : valueDisplay}
+                ${(() => {
+                    if (typeof renderDataStructure !== 'undefined' && typeof detectDataStructureType !== 'undefined') {
+                        if (v.type !== 'loop' && v.type !== 'function') {
+                            const dsType = detectDataStructureType(v.name, value);
+                            if (dsType && value !== undefined) {
+                                return renderDataStructure(v.name, String(value), dsType);
+                            }
+                        }
+                    }
+                    return '';
+                })()}
+            </div>
+        `;
+        }).join('');
 
         return `
-        <div class="var-item">
-            <div class="var-header">
-                <div class="var-icon">${getTypeIcon(variableTypes[v.name] || v.type)}</div>
-                <span class="var-name" title="${v.name}">${v.name}</span>
-                <div class="var-actions">
-                    ${actionButtons}
+            <div class="var-group">
+                <div class="var-group-title" style="font-size: 10px; font-weight: bold; text-transform: uppercase; color: var(--text-muted); margin-bottom: 4px; margin-top: 8px;">
+                    ${groupTitles[category]}
                 </div>
-                <span class="var-spacer"></span>
-                <span class="var-type">${variableTypes[v.name] || v.type}</span>
+                ${listHtml}
             </div>
-            ${valueDisplay}
-            ${(() => {
-                // Try to render data structure visualization
-                const dsType = detectDataStructureType(v.name, value);
-                if (dsType && value !== undefined) {
-                    return renderDataStructure(v.name, String(value), dsType);
-                }
-                return '';
-            })()}
-        </div>
-    `;
-    }).join('');
+        `;
+    };
+
+    html += renderGroup('input', groups['input']);
+    html += renderGroup('loop', groups['loop']);
+    html += renderGroup('computation', groups['computation']);
+    html += renderGroup('function', groups['function']);
+    html += renderGroup('inline', groups['inline']);
+    html += renderGroup('condition', groups['condition']);
+
+    elements.variablesPanel.innerHTML = html;
 }
+
+
 
 // Fetch variable values after code execution
 async function fetchVariableValues() {
@@ -1156,6 +1319,25 @@ except:
             const [valResult, typeResult] = result.toJs();
             variableValues[v.name] = valResult;
             variableTypes[v.name] = typeResult; // Store runtime type
+
+            // History Check (Show "old -> new")
+            if (iterationData && iterationData.history && iterationData.history[v.name]) {
+                const hist = iterationData.history[v.name];
+                if (hist.length > 0) {
+                    const uniqueHist = [];
+                    for (let i = 0; i < hist.length; i++) {
+                        if (i === 0 || hist[i] !== hist[i - 1]) uniqueHist.push(hist[i]);
+                    }
+
+                    if (uniqueHist.length > 1) {
+                        if (uniqueHist.length <= 5) {
+                            variableValues[v.name] = uniqueHist.join(' → ');
+                        } else {
+                            variableValues[v.name] = `${uniqueHist[0]} → ... → ${uniqueHist[uniqueHist.length - 1]}`;
+                        }
+                    }
+                }
+            }
         } catch (e) {
             variableValues[v.name] = '?';
         }
@@ -1169,15 +1351,74 @@ function parseVariables(code) {
     const seen = new Set();
     const lines = code.split('\n');
 
-    lines.forEach(line => {
-        // Match: var = value
+    // Track function definitions and their return values
+    const functions = new Map();
+    let currentFunction = null;
+    let functionIndent = 0;
+
+    lines.forEach((line, idx) => {
+        const trimmed = line.trim();
+        const indent = line.search(/\S|$/);
+
+        // Detect function definitions
+        const funcMatch = trimmed.match(/^def\s+(\w+)\s*\(/);
+        if (funcMatch) {
+            currentFunction = funcMatch[1];
+            functionIndent = indent;
+            functions.set(currentFunction, { name: currentFunction, hasReturn: false, returnValue: 'None' });
+        }
+
+        // Track return statements in functions
+        if (currentFunction && indent > functionIndent) {
+            const returnMatch = trimmed.match(/^return\s*(.*)$/);
+            if (returnMatch) {
+                const retVal = returnMatch[1].trim() || 'None';
+                functions.get(currentFunction).hasReturn = true;
+                functions.get(currentFunction).returnValue = retVal;
+            }
+        }
+
+        // Exit function when dedent
+        if (currentFunction && indent <= functionIndent && trimmed && !trimmed.startsWith('def')) {
+            currentFunction = null;
+        }
+
+        // Detect for loop variables with range info
+        const forMatch = trimmed.match(/^for\s+(\w+)\s+in\s+range\s*\((.+)\)\s*:/);
+        if (forMatch) {
+            const loopVar = forMatch[1];
+            const rangeArgs = forMatch[2];
+
+            if (!seen.has(loopVar)) {
+                seen.add(loopVar);
+
+                // Parse range arguments
+                const args = rangeArgs.split(',').map(a => a.trim());
+                let start = '0', end = args[0], step = '1';
+                if (args.length >= 2) {
+                    start = args[0];
+                    end = args[1];
+                }
+                if (args.length >= 3) {
+                    step = args[2];
+                }
+
+                vars.push({
+                    name: loopVar,
+                    type: 'loop',
+                    loopInfo: { start, end, step }
+                });
+            }
+        }
+
+        // Match regular variable assignments: var = value
         const match = line.match(/^\s*([a-zA-Z_]\w*)\s*=\s*(.+)$/);
         if (match) {
             const name = match[1];
             const value = match[2];
 
-            // Skip loop variables and builtins
-            if (['t', 'i', 'j', 'k', '_', 'self'].includes(name) || seen.has(name)) return;
+            // Skip builtins and already seen
+            if (['self'].includes(name) || seen.has(name)) return;
 
             let type = 'other';
             if (value.includes('list(') || value.startsWith('[')) type = 'list';
@@ -1191,11 +1432,30 @@ function parseVariables(code) {
         }
     });
 
+    // Add functions to vars list
+    functions.forEach((func) => {
+        vars.push({
+            name: func.name,
+            type: 'function',
+            returnValue: func.returnValue
+        });
+    });
+
     return vars;
 }
 
 function getTypeIcon(type) {
-    const icons = { list: '[]', int: '#', str: 'Aa', dict: '{:}', set: '{}', float: '.0', other: '?' };
+    const icons = {
+        list: '[]',
+        int: '#',
+        str: 'Aa',
+        dict: '{:}',
+        set: '{}',
+        float: '.0',
+        loop: '🔄',
+        function: 'ƒ',
+        other: '?'
+    };
     return icons[type] || '?';
 }
 
@@ -2163,8 +2423,8 @@ function pythonHint(cm) {
 
     const prefix = line.substring(start, end).toLowerCase();
 
-    // Need at least 2 characters to trigger
-    if (prefix.length < 2) {
+    // Need at least 1 character to trigger
+    if (prefix.length < 1) {
         return null;
     }
 
@@ -2284,7 +2544,7 @@ function setupAutocomplete(cm) {
 
         const word = line.substring(wordStart, ch);
 
-        if (word.length >= 2 && /^\w+$/.test(word)) {
+        if (word.length >= 1 && /^\w+$/.test(word)) { // Trigger on 1+ char
             cm.showHint({
                 hint: pythonHint,
                 completeSingle: false,
@@ -2630,6 +2890,973 @@ function parseAdjList(value) {
 }
 
 // ============================================
+// Custom Cursor Placement Rules
+// ============================================
+let customPlacementRules = JSON.parse(localStorage.getItem('cf-ide-placement-rules') || '{}');
+let customMovementRules = JSON.parse(localStorage.getItem('cf-ide-movement-rules') || '{}');
+
+function initCursorRulesModals() {
+    const placementModal = document.getElementById('cursorPlacementModal');
+    const movementModal = document.getElementById('cursorMovementModal');
+    const placementBtn = document.getElementById('cursorPlacementBtn');
+    const movementBtn = document.getElementById('cursorMovementBtn');
+    const closePlacementBtn = document.getElementById('closePlacementBtn');
+    const closeMovementBtn = document.getElementById('closeMovementBtn');
+
+    if (placementBtn) {
+        placementBtn.addEventListener('click', () => {
+            placementModal.classList.remove('hidden');
+            renderPlacementRules();
+        });
+    }
+
+    if (movementBtn) {
+        movementBtn.addEventListener('click', () => {
+            movementModal.classList.remove('hidden');
+            renderMovementRules();
+        });
+    }
+
+    if (closePlacementBtn) {
+        closePlacementBtn.addEventListener('click', () => placementModal.classList.add('hidden'));
+    }
+
+    if (closeMovementBtn) {
+        closeMovementBtn.addEventListener('click', () => movementModal.classList.add('hidden'));
+    }
+
+    // Add rule buttons
+    document.getElementById('addPlacementRuleBtn')?.addEventListener('click', addPlacementRule);
+    document.getElementById('addMovementRuleBtn')?.addEventListener('click', addMovementRule);
+
+    // Close modals on backdrop click
+    [placementModal, movementModal].forEach(modal => {
+        modal?.addEventListener('click', (e) => {
+            if (e.target === modal) modal.classList.add('hidden');
+        });
+    });
+}
+
+function renderPlacementRules() {
+    const container = document.getElementById('placementRulesList');
+    if (!container) return;
+
+    if (Object.keys(customPlacementRules).length === 0) {
+        container.innerHTML = '<div class="empty-state">No custom placement rules. Add one below!</div>';
+        return;
+    }
+
+    container.innerHTML = Object.entries(customPlacementRules).map(([trigger, template]) => `
+        <div class="rule-item">
+            <span class="rule-trigger">${escapeHtml(trigger)}</span>
+            <span class="rule-arrow">→</span>
+            <span class="rule-template">${escapeHtml(template)}</span>
+            <button class="rule-delete" onclick="deletePlacementRule('${trigger}')">🗑</button>
+        </div>
+    `).join('');
+}
+
+function renderMovementRules() {
+    const container = document.getElementById('movementRulesList');
+    if (!container) return;
+
+    if (Object.keys(customMovementRules).length === 0) {
+        container.innerHTML = '<div class="empty-state">No custom movement rules. Add one below!</div>';
+        return;
+    }
+
+    container.innerHTML = Object.entries(customMovementRules).map(([shortcut, rule]) => `
+        <div class="rule-item">
+            <span class="rule-trigger">Alt + ${escapeHtml(shortcut)}</span>
+            <span class="rule-arrow">→</span>
+            <span class="rule-template">${escapeHtml(rule.description || rule.type)}</span>
+            <button class="rule-delete" onclick="deleteMovementRule('${shortcut}')">🗑</button>
+        </div>
+    `).join('');
+}
+
+function addPlacementRule() {
+    const trigger = document.getElementById('placementTrigger')?.value.trim();
+    const template = document.getElementById('placementTemplate')?.value;
+
+    if (!trigger || !template) {
+        showToast('Please fill in both trigger and template', 'error');
+        return;
+    }
+
+    customPlacementRules[trigger] = template;
+    localStorage.setItem('cf-ide-placement-rules', JSON.stringify(customPlacementRules));
+
+    document.getElementById('placementTrigger').value = '';
+    document.getElementById('placementTemplate').value = '';
+
+    renderPlacementRules();
+    showToast(`Added placement rule: ${trigger}`, 'success');
+}
+
+function deletePlacementRule(trigger) {
+    delete customPlacementRules[trigger];
+    localStorage.setItem('cf-ide-placement-rules', JSON.stringify(customPlacementRules));
+    renderPlacementRules();
+    showToast(`Deleted rule: ${trigger}`, 'success');
+}
+
+function addMovementRule() {
+    const shortcut = document.getElementById('movementShortcut')?.value.trim();
+    const action = document.getElementById('movementAction')?.value.trim();
+    const type = document.getElementById('movementType')?.value;
+
+    if (!shortcut) {
+        showToast('Please enter a shortcut', 'error');
+        return;
+    }
+
+    customMovementRules[shortcut] = { type, description: action || type };
+    localStorage.setItem('cf-ide-movement-rules', JSON.stringify(customMovementRules));
+
+    document.getElementById('movementShortcut').value = '';
+    document.getElementById('movementAction').value = '';
+
+    renderMovementRules();
+    showToast(`Added movement rule: Alt + ${shortcut}`, 'success');
+}
+
+function deleteMovementRule(shortcut) {
+    delete customMovementRules[shortcut];
+    localStorage.setItem('cf-ide-movement-rules', JSON.stringify(customMovementRules));
+    renderMovementRules();
+    showToast(`Deleted rule: ${shortcut}`, 'success');
+}
+
+// ============================================
+// Custom Smart Space Handler (with custom rules)
+// ============================================
+let activeExpansion = null; // Tracks current expansion state {placeholders: [{line, ch}], currentIndex: 0}
+
+function handleCustomSmartSpace(cm) {
+    // If we're in an active expansion, jump to next placeholder
+    if (activeExpansion && activeExpansion.placeholders.length > 0) {
+        const nextIndex = activeExpansion.currentIndex;
+        if (nextIndex < activeExpansion.placeholders.length) {
+            const placeholder = activeExpansion.placeholders[nextIndex];
+
+            // Find and remove the placeholder marker from the document
+            const line = cm.getLine(placeholder.line);
+            const markerIndex = line.indexOf('`' + (nextIndex + 1));
+
+            if (markerIndex !== -1) {
+                cm.replaceRange('',
+                    { line: placeholder.line, ch: markerIndex },
+                    { line: placeholder.line, ch: markerIndex + 2 }
+                );
+                cm.setCursor({ line: placeholder.line, ch: markerIndex });
+            }
+
+            activeExpansion.currentIndex++;
+
+            // Clear expansion if we've used all placeholders
+            if (activeExpansion.currentIndex >= activeExpansion.placeholders.length) {
+                activeExpansion = null;
+            }
+            return;
+        } else {
+            activeExpansion = null;
+        }
+    }
+
+    const cursor = cm.getCursor();
+    const line = cm.getLine(cursor.line);
+    const beforeCursor = line.substring(0, cursor.ch).trim();
+    const indent = line.match(/^\s*/)[0];
+
+    // Check custom placement rules first
+    if (customPlacementRules[beforeCursor]) {
+        const template = customPlacementRules[beforeCursor];
+        expandTemplateWithPlaceholders(cm, beforeCursor, template, indent);
+        return;
+    }
+
+    // Fall back to default smart space
+    return handleSmartSpace(cm);
+}
+
+function expandTemplateWithPlaceholders(cm, trigger, template, indent) {
+    const cursor = cm.getCursor();
+
+    // Replace \n with actual newlines + indent
+    let expanded = template.replace(/\\n/g, '\n' + indent);
+
+    // Find all placeholders and their positions
+    const placeholders = [];
+    let searchPos = 0;
+    for (let i = 1; i <= 9; i++) {
+        const marker = '`' + i;
+        const idx = expanded.indexOf(marker, searchPos);
+        if (idx !== -1) {
+            // Calculate line and column for this placeholder
+            const beforeMarker = expanded.substring(0, idx);
+            const lines = beforeMarker.split('\n');
+            const markerLine = lines.length - 1;
+            const markerCh = lines[lines.length - 1].length;
+
+            placeholders.push({
+                line: cursor.line + markerLine,
+                ch: markerLine === 0 ? indent.length + markerCh : markerCh
+            });
+        }
+    }
+
+    // Replace trigger with template (keeping placeholder markers)
+    cm.replaceRange(
+        indent + expanded,
+        { line: cursor.line, ch: 0 },
+        cursor
+    );
+
+    // Set up active expansion
+    if (placeholders.length > 0) {
+        activeExpansion = {
+            placeholders: placeholders,
+            currentIndex: 0
+        };
+
+        // Jump to first placeholder
+        const first = placeholders[0];
+        const lineContent = cm.getLine(first.line);
+        const markerIdx = lineContent.indexOf('`1');
+        if (markerIdx !== -1) {
+            cm.replaceRange('',
+                { line: first.line, ch: markerIdx },
+                { line: first.line, ch: markerIdx + 2 }
+            );
+            cm.setCursor({ line: first.line, ch: markerIdx });
+        }
+        activeExpansion.currentIndex = 1;
+    }
+}
+
+// Clear active expansion when cursor moves away or user types something other than space
+function clearActiveExpansion() {
+    activeExpansion = null;
+}
+
+// ============================================
+// Enhanced Alt Shortcuts with Command Box
+// ============================================
+let altCommandBuffer = '';
+let altCommandBox = null;
+let altCommandText = null;
+let isAltHeld = false;
+
+function initEnhancedAltShortcuts() {
+    altCommandBox = document.getElementById('altCommandBox');
+    altCommandText = document.getElementById('altCommandText');
+
+    if (!editor) return;
+
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Alt') {
+            e.preventDefault();
+            isAltHeld = true;
+            altCommandBuffer = '';
+            showAltCommandBox();
+        } else if (isAltHeld && !e.ctrlKey && !e.metaKey) {
+            e.preventDefault();
+            altCommandBuffer += e.key;
+            updateAltCommandBox();
+        }
+    });
+
+    document.addEventListener('keyup', (e) => {
+        if (e.key === 'Alt') {
+            isAltHeld = false;
+            hideAltCommandBox();
+            if (altCommandBuffer) {
+                executeAltCommand(altCommandBuffer);
+            }
+            altCommandBuffer = '';
+        }
+    });
+
+    // Clear state on window blur (e.g. Alt+Tab)
+    window.addEventListener('blur', () => {
+        isAltHeld = false;
+        hideAltCommandBox();
+        altCommandBuffer = '';
+    });
+}
+
+function showAltCommandBox() {
+    if (altCommandBox) {
+        altCommandBox.classList.remove('hidden');
+        updateAltCommandBox();
+    }
+}
+
+function updateAltCommandBox() {
+    if (altCommandText) {
+        altCommandText.textContent = altCommandBuffer || '_';
+    }
+}
+
+function hideAltCommandBox() {
+    if (altCommandBox) {
+        altCommandBox.classList.add('hidden');
+    }
+}
+
+function executeAltCommand(cmd) {
+    if (!cmd || !editor) return;
+
+    // Check custom movement rules first
+    if (customMovementRules[cmd]) {
+        const rule = customMovementRules[cmd];
+        executeMovementRule(rule, cmd);
+        return;
+    }
+
+    // Default: parse as line number with optional suffix
+    const lineMatch = cmd.match(/^(\d+)(e|s)?$/);
+    if (lineMatch) {
+        const lineNum = parseInt(lineMatch[1], 10);
+        const suffix = lineMatch[2];
+
+        if (suffix === 'e') {
+            goToLine(lineNum, true); // End of line
+        } else if (suffix === 's') {
+            goToLine(lineNum, false); // Start of line
+        } else {
+            goToLine(lineNum, false); // Start of line
+        }
+        return;
+    }
+
+    showToast(`Unknown command: ${cmd}`, 'error');
+}
+
+function executeMovementRule(rule, cmd) {
+    const lineMatch = cmd.match(/(\d+)/);
+    const lineNum = lineMatch ? parseInt(lineMatch[1], 10) : 1;
+
+    switch (rule.type) {
+        case 'line':
+            goToLine(lineNum, false);
+            break;
+        case 'lineEnd':
+            goToLine(lineNum, true);
+            break;
+        case 'lineStart':
+            goToLine(lineNum, false);
+            break;
+        case 'custom':
+            try {
+                eval(rule.description);
+            } catch (e) {
+                showToast('Custom rule error: ' + e.message, 'error');
+            }
+            break;
+    }
+}
+
+// ============================================
+// Auto-Run All Tests on Enter
+// ============================================
+function initAutoRunAllTests() {
+    if (!editor) return;
+
+    editor.on('keyup', (cm, e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            const cursor = cm.getCursor();
+            if (cursor.line > 0) {
+                const prevLine = cm.getLine(cursor.line - 1);
+                if (prevLine && prevLine.trim().startsWith('print(')) {
+                    // Run all test cases automatically
+                    runAllTestCases();
+                }
+            }
+        }
+    });
+}
+
+function runAllTestCases() {
+    // Trigger the "Run All Tests" button
+    const runAllBtn = document.getElementById('runAllTestsBtn');
+    if (runAllBtn) {
+        runAllBtn.click();
+    }
+}
+
+// ============================================
+// Multi-line Iteration Visualizer
+// ============================================
+let iterationData = {};
+
+function initIterationVisualizer() {
+    const clearBtn = document.getElementById('clearVisualizerBtn');
+    if (clearBtn) {
+        clearBtn.addEventListener('click', clearIterations);
+    }
+}
+
+function clearIterations() {
+    iterationData = {};
+    renderIterations();
+    showToast('Iterations cleared', 'success');
+}
+
+// Track loop iterations by analyzing code and running with tracing
+// Track loop iterations and conditions by instrumenting code
+async function trackLoopIterations(code) {
+    if (!pyodide) return;
+
+    iterationData = {};
+
+    try {
+        await pyodide.runPythonAsync(`
+import ast
+import json
+import sys
+
+# Storage
+_track_data = {
+    'loops': {},
+    'conditions': {},
+    'recursion': [],
+    'call_stack': [],
+    'history': {}
+}
+
+def _track_recursion_enter(func_name, args_dict):
+    call_id = len(_track_data['recursion']) + 1
+    entry = {
+        'id': call_id,
+        'func': func_name,
+        'args': {k: str(v) for k, v in args_dict.items() if not k.startswith('_')},
+        'parent': _track_data['call_stack'][-1] if _track_data['call_stack'] else None,
+        'children': [],
+        'return': None
+    }
+    _track_data['recursion'].append(entry)
+    _track_data['call_stack'].append(call_id)
+    return call_id
+
+def _track_recursion_exit(call_id, ret_val):
+    if _track_data['call_stack'] and _track_data['call_stack'][-1] == call_id:
+        _track_data['call_stack'].pop()
+    
+    # Update return value in the flat list (referenced by id-1 index usually, but let's find it)
+    for r in _track_data['recursion']:
+        if r['id'] == call_id:
+            r['return'] = str(ret_val)
+            break
+    return ret_val
+
+def _track_assign(name, val):
+    if name not in _track_data['history']:
+        _track_data['history'][name] = []
+    # Avoid massive history
+    if len(_track_data['history'][name]) < 50:
+        _track_data['history'][name].append(str(val))
+    return val
+
+# Helper to capture range info
+def _get_range_info(node):
+    try:
+        if isinstance(node.iter, ast.Call) and isinstance(node.iter.func, ast.Name) and node.iter.func.id == 'range':
+            args = node.iter.args
+            start, stop, step = 0, 0, 1
+            if len(args) == 1:
+                stop = args[0]
+            elif len(args) == 2:
+                start, stop = args[0], args[1]
+            elif len(args) == 3:
+                start, stop, step = args[0], args[1], args[2]
+            
+            # Try to resolve constants
+            def resolve(n):
+                if isinstance(n, ast.Constant): return n.value
+                return "?"
+                
+            return f"{resolve(start)} -> {resolve(stop)} : {resolve(step)}"
+    except:
+        pass
+    return ""
+
+def _track_loop(name, locals_dict, filter_vars, loop_var, range_str, is_init=False):
+    if name not in _track_data['loops']:
+        _track_data['loops'][name] = {
+            'variables': [], 
+            'iterations': [], 
+            'loop_var': loop_var,
+            'range': range_str
+        }
+    
+    # Filter variables: only loop_var and those modified in the loop
+    simple_vars = {}
+    target_vars = [loop_var] + filter_vars
+    
+    for k in target_vars:
+        if k in locals_dict and isinstance(locals_dict[k], (int, float, str, bool, list)):
+             simple_vars[k] = locals_dict[k]
+    
+    # Update keys (columns)
+    ordered_columns = [loop_var]
+    for v in filter_vars:
+        if v in simple_vars and v not in ordered_columns:
+            ordered_columns.append(v)
+            
+    _track_data['loops'][name]['variables'] = ordered_columns
+    
+    
+    if is_init:
+        # Prepend to iterations (Initial state)
+        # Exclude loop_var from init state as it typically has garbage/old value
+        if loop_var in simple_vars:
+            del simple_vars[loop_var]
+        _track_data['loops'][name]['iterations'].insert(0, simple_vars)
+    else:
+        _track_data['loops'][name]['iterations'].append(simple_vars)
+
+def _track_condition(val, name, line, source):
+    if name not in _track_data['conditions']:
+         _track_data['conditions'][name] = {'line': line, 'source': source, 'values': []}
+    _track_data['conditions'][name]['values'].append(str(val))
+    return val
+
+class Instrumenter(ast.NodeTransformer):
+    def __init__(self):
+        self.loop_count = 0
+        self.cond_count = 0
+
+    def visit_FunctionDef(self, node):
+        # Instrument function entry
+        func_name = node.name
+        
+        # Capture arguments
+        args_collector = ast.Dict(keys=[], values=[])
+        for arg in node.args.args:
+            args_collector.keys.append(ast.Constant(value=arg.arg))
+            args_collector.values.append(ast.Name(id=arg.arg, ctx=ast.Load()))
+            
+        enter_call = ast.Assign(
+            targets=[ast.Name(id='_call_id', ctx=ast.Store())],
+            value=ast.Call(
+                func=ast.Name(id='_track_recursion_enter', ctx=ast.Load()),
+                args=[ast.Constant(value=func_name), args_collector],
+                keywords=[]
+            )
+        )
+        
+        # Insert at start
+        node.body.insert(0, enter_call)
+        
+        # Instrument Returns
+        # We need to wrap Returns to call exit
+        self.generic_visit(node)
+        
+        return node
+
+    def visit_Return(self, node):
+        # transform return X -> return _track_recursion_exit(_call_id, X)
+        if node.value:
+            node.value = ast.Call(
+                func=ast.Name(id='_track_recursion_exit', ctx=ast.Load()),
+                args=[ast.Name(id='_call_id', ctx=ast.Load()), node.value],
+                keywords=[]
+            )
+        return node
+
+
+    def visit_For(self, node):
+        self.loop_count += 1
+        name = f"loop_{self.loop_count}"
+        
+        # 1. Identify Loop Variable
+        loop_var = ""
+        if isinstance(node.target, ast.Name):
+            loop_var = node.target.id
+            
+        # 2. Capture Range Info
+        range_str = _get_range_info(node)
+        
+        # 3. Identify Modified Variables in Body
+        modified_vars = []
+        for child in ast.walk(node):
+            if isinstance(child, ast.Assign):
+                for target in child.targets:
+                    if isinstance(target, ast.Name):
+                        if target.id not in modified_vars: modified_vars.append(target.id)
+            elif isinstance(child, ast.AugAssign):
+                if isinstance(child.target, ast.Name):
+                    if child.target.id not in modified_vars: modified_vars.append(child.target.id)
+        
+        # Remove loop var from modified list to avoid dupes (it's verified separately)
+        if loop_var in modified_vars:
+            modified_vars.remove(loop_var)
+
+        # Tracker Init (Before Loop)
+        tracker_init = ast.Expr(
+            value=ast.Call(
+                func=ast.Name(id='_track_loop', ctx=ast.Load()),
+                args=[
+                    ast.Constant(value=name), 
+                    ast.Call(func=ast.Name(id='locals', ctx=ast.Load()), args=[], keywords=[]),
+                    ast.List(elts=[ast.Constant(value=v) for v in modified_vars], ctx=ast.Load()),
+                    ast.Constant(value=loop_var),
+                    ast.Constant(value=range_str),
+                    ast.Constant(value=True) # is_init
+                ],
+                keywords=[]
+            )
+        )
+
+        # Tracker Body (End of Body)
+        tracker = ast.Expr(
+            value=ast.Call(
+                func=ast.Name(id='_track_loop', ctx=ast.Load()),
+                args=[
+                    ast.Constant(value=name), 
+                    ast.Call(func=ast.Name(id='locals', ctx=ast.Load()), args=[], keywords=[]),
+                    ast.List(elts=[ast.Constant(value=v) for v in modified_vars], ctx=ast.Load()),
+                    ast.Constant(value=loop_var),
+                    ast.Constant(value=range_str),
+                    ast.Constant(value=False) # is_init
+                ],
+                keywords=[]
+            )
+        )
+        node.body.append(tracker)
+        return [tracker_init, self.generic_visit(node)]
+
+    def visit_While(self, node):
+        self.loop_count += 1
+        name = f"loop_{self.loop_count}"
+        
+        modified_vars = []
+        for child in ast.walk(node):
+            if isinstance(child, ast.Assign):
+                for target in child.targets:
+                    if isinstance(target, ast.Name):
+                        if target.id not in modified_vars: modified_vars.append(target.id)
+            elif isinstance(child, ast.AugAssign):
+                if isinstance(child.target, ast.Name):
+                    if child.target.id not in modified_vars: modified_vars.append(child.target.id)
+
+        # Tracker Init
+        tracker_init = ast.Expr(
+            value=ast.Call(
+                func=ast.Name(id='_track_loop', ctx=ast.Load()),
+                args=[
+                    ast.Constant(value=name), 
+                    ast.Call(func=ast.Name(id='locals', ctx=ast.Load()), args=[], keywords=[]),
+                    ast.List(elts=[ast.Constant(value=v) for v in modified_vars], ctx=ast.Load()),
+                    ast.Constant(value=""), 
+                    ast.Constant(value="while"),
+                    ast.Constant(value=True)
+                ],
+                keywords=[]
+            )
+        )
+
+        tracker = ast.Expr(
+            value=ast.Call(
+                func=ast.Name(id='_track_loop', ctx=ast.Load()),
+                args=[
+                    ast.Constant(value=name), 
+                    ast.Call(func=ast.Name(id='locals', ctx=ast.Load()), args=[], keywords=[]),
+                    ast.List(elts=[ast.Constant(value=v) for v in modified_vars], ctx=ast.Load()),
+                    ast.Constant(value=""), 
+                    ast.Constant(value="while"),
+                    ast.Constant(value=False)
+                ],
+                keywords=[]
+            )
+        )
+        node.body.append(tracker)
+        return [tracker_init, self.generic_visit(node)]
+
+    def visit_Assign(self, node):
+        self.generic_visit(node)
+        trackers = []
+        for target in node.targets:
+            if isinstance(target, ast.Name):
+                t = ast.Expr(
+                    value=ast.Call(
+                        func=ast.Name(id='_track_assign', ctx=ast.Load()),
+                        args=[
+                            ast.Constant(value=target.id),
+                            ast.Name(id=target.id, ctx=ast.Load())
+                        ],
+                        keywords=[]
+                    )
+                )
+                trackers.append(t)
+        if trackers:
+            return [node] + trackers
+        return node
+
+    def visit_AugAssign(self, node):
+        self.generic_visit(node)
+        if isinstance(node.target, ast.Name):
+            t = ast.Expr(
+                value=ast.Call(
+                    func=ast.Name(id='_track_assign', ctx=ast.Load()),
+                    args=[
+                        ast.Constant(value=node.target.id),
+                        ast.Name(id=node.target.id, ctx=ast.Load())
+                    ],
+                    keywords=[]
+                )
+            )
+            return [node, t]
+        return node
+
+    def visit_If(self, node):
+        self.cond_count += 1
+        name = f"cond_{self.cond_count}"
+        
+        # Try to extract the source code of the condition
+        # This requires Python 3.8+ and that we parse correctly
+        cond_source = "Condition" 
+        try:
+             # Create a valid expression from the test node to unparse
+             if sys.version_info >= (3, 9):
+                 cond_source = ast.unparse(node.test)
+        except:
+             pass
+
+        old_test = node.test
+        
+        # Call _track_condition(result, name, line, source_text)
+        node.test = ast.Call(
+            func=ast.Name(id='_track_condition', ctx=ast.Load()),
+            args=[
+                old_test, 
+                ast.Constant(value=name), 
+                ast.Constant(value=node.lineno),
+                ast.Constant(value=cond_source) 
+            ],
+            keywords=[]
+        )
+        return self.generic_visit(node)
+        `);
+
+        // Instrument and run user code
+        // We use a separate context or just run it. 
+        // Note: Running it again might cause double output or side effects, 
+        // but since we capture output in runCode, we should temporarily suppress it here if needed.
+        // Actually, for visualization, re-running is common.
+
+        await pyodide.runPythonAsync(`
+try:
+    _user_code = ${JSON.stringify(code)}
+    _tree = ast.parse(_user_code)
+    Instrumenter().visit(_tree)
+    ast.fix_missing_locations(_tree)
+    
+    # Suppress output during analysis
+    _old_stdout = sys.stdout
+    sys.stdout = CaptureOutput() # Reuse existing capture class
+    
+    exec(compile(_tree, filename="<string>", mode="exec"))
+    
+    sys.stdout = _old_stdout
+except Exception as e:
+    print(f"Instrumentation Error: {e}")
+    pass
+        `);
+
+        // Fetch data
+        const data = await pyodide.runPythonAsync(`json.dumps(_track_data)`);
+        iterationData = JSON.parse(data);
+
+    } catch (e) {
+        console.error("Analysis failed:", e);
+    }
+
+    renderIterations();
+}
+
+function renderIterations() {
+    const panel = document.getElementById('visualizerPanel');
+    if (!panel) return;
+
+    if (!iterationData || (Object.keys(iterationData.loops || {}).length === 0 && Object.keys(iterationData.conditions || {}).length === 0)) {
+        panel.innerHTML = '<div class="empty-state">No loops or conditions detected</div>';
+        return;
+    }
+
+    let html = '';
+
+    // Render Loops
+    if (iterationData.loops) {
+        html += Object.entries(iterationData.loops).map(([name, data]) => {
+            const vars = data.variables || [];
+            const rows = data.iterations || [];
+
+            if (rows.length === 0 || vars.length === 0) return '';
+
+            const headers = vars.map(v => `<th>${escapeHtml(v)}</th>`).join('');
+            const tableRows = rows.slice(0, 50).map(row => // Limit to 50 rows
+                `<tr>${vars.map(v => `<td>${escapeHtml(String(row[v] ?? '-'))}</td>`).join('')}</tr>`
+            ).join('');
+
+            // Format Header
+            let headerTitle = `🔄 ${escapeHtml(name)}`;
+            // Use data.range directly as it already has "start -> stop : step" format
+            if (data.loop_var && data.range && data.range !== 'while') {
+                headerTitle = `🔄 ${escapeHtml(data.loop_var)} <span style="opacity:0.6; font-weight:400; font-size:10px; margin-left:4px; font-family: var(--font-mono);">(${data.range})</span>`;
+            } else if (data.range === 'while') {
+                headerTitle = `🔄 While Loop`;
+            }
+
+            return `
+                <div class="iteration-card">
+                    <div class="iteration-header">
+                        <span class="iteration-name">${headerTitle}</span>
+                        <span style="font-size: 9px; color: var(--text-muted);">${rows.length} iter</span>
+                    </div>
+                    <div style="overflow-x: auto;">
+                        <table class="iteration-table">
+                            <thead><tr>${headers}</tr></thead>
+                            <tbody>${tableRows}</tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+
+
+    // Render Recursion Tree
+    if (iterationData.recursion && iterationData.recursion.length > 0) {
+        // Build Tree structure from flat list
+        const roots = [];
+        const map = {};
+
+        iterationData.recursion.forEach(node => {
+            map[node.id] = { ...node, children: [] };
+        });
+
+        iterationData.recursion.forEach(node => {
+            if (node.parent && map[node.parent]) {
+                map[node.parent].children.push(map[node.id]);
+            } else {
+                roots.push(map[node.id]);
+            }
+        });
+
+        const renderNode = (node, depth = 0) => {
+            const argsStr = Object.entries(node.args || {}).map(([k, v]) => `${k}=${v}`).join(', ');
+            const returnStr = node.return !== 'None' ? ` → ${node.return}` : '';
+
+            let childrenHtml = '';
+            if (node.children && node.children.length > 0) {
+                childrenHtml = `
+                    <div style="border-left: 1px solid var(--border-color); margin-left: 8px; padding-left: 8px;">
+                        ${node.children.map(child => renderNode(child, depth + 1)).join('')}
+                    </div>
+                `;
+            }
+
+            return `
+                <div style="margin-bottom: 4px;">
+                    <div style="font-family: var(--font-mono); font-size: 11px;">
+                        <span style="color: var(--accent-primary);">${escapeHtml(node.func)}</span>
+                        <span style="color: var(--text-muted);">(${escapeHtml(argsStr)})</span>
+                        <span style="color: var(--accent-success); font-weight: 500;">${escapeHtml(returnStr)}</span>
+                    </div>
+                    ${childrenHtml}
+                </div>
+            `;
+        };
+
+        if (roots.length > 0) {
+            html = `
+                <div class="iteration-card">
+                    <div class="iteration-header">
+                         <span class="iteration-name">🌳 Recursion Tree</span>
+                    </div>
+                    <div style="padding: 8px; overflow-x: auto;">
+                        ${roots.map(root => renderNode(root)).join('')}
+                    </div>
+                </div>
+            ` + html;
+        }
+    }
+
+
+    panel.innerHTML = html || '<div class="empty-state">No data collected</div>';
+}
+
+// Capture loop iterations from code execution
+async function captureIterations(code) {
+    if (!pyodide) return;
+
+    iterationData = {};
+
+    // Detect loops and add tracing
+    const lines = code.split('\n');
+    let loopCount = 0;
+    let modifiedCode = '';
+    let inLoop = false;
+    let loopVars = [];
+    let currentLoopName = '';
+    let loopIndent = 0;
+
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const trimmed = line.trim();
+        const indent = line.search(/\S|$/);
+
+        // Detect for loop start
+        const forMatch = trimmed.match(/^for\s+(\w+)\s+in\s+/);
+        if (forMatch) {
+            loopCount++;
+            currentLoopName = `loop_${loopCount} `;
+            loopVars = [forMatch[1]];
+            loopIndent = indent;
+            inLoop = true;
+            iterationData[currentLoopName] = { variables: loopVars, iterations: [] };
+            modifiedCode += line + '\n';
+            continue;
+        }
+
+        // Detect while loop
+        if (trimmed.startsWith('while ')) {
+            loopCount++;
+            currentLoopName = `loop_${loopCount} `;
+            loopVars = [];
+            loopIndent = indent;
+            inLoop = true;
+            iterationData[currentLoopName] = { variables: [], iterations: [] };
+            modifiedCode += line + '\n';
+            continue;
+        }
+
+        // Check if we're still in the loop
+        if (inLoop && indent <= loopIndent && trimmed && !trimmed.startsWith('#')) {
+            inLoop = false;
+        }
+
+        // Track variable assignments inside loops
+        if (inLoop) {
+            const assignMatch = trimmed.match(/^(\w+)\s*=/);
+            if (assignMatch && !loopVars.includes(assignMatch[1])) {
+                loopVars.push(assignMatch[1]);
+                iterationData[currentLoopName].variables = loopVars;
+            }
+        }
+
+        modifiedCode += line + '\n';
+    }
+
+    // For simplicity, we'll parse the output after execution
+    // The actual iteration tracking happens during runCode
+}
+
+// ============================================
 // Start App
 // ============================================
 document.addEventListener('DOMContentLoaded', () => {
@@ -2640,6 +3867,11 @@ document.addEventListener('DOMContentLoaded', () => {
     setupNewFeatureListeners();
     loadAutocompleteData();
     initConvertDropdown();
-    initAltShortcuts();
+    initEnhancedAltShortcuts();
     initProblemPanel();
+    initCursorRulesModals();
+    initAutoRunAllTests();
+    initIterationVisualizer();
 });
+
+

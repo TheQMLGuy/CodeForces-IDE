@@ -88,6 +88,12 @@
                 <button class="header-btn" id="loadStateBtn" title="Load Session">
                     <span>📂</span> Load
                 </button>
+                <button class="header-btn" id="cursorPlacementBtn" title="Custom Cursor Expansion Rules">
+                    <span>📍</span> Placement
+                </button>
+                <button class="header-btn" id="cursorMovementBtn" title="Custom Alt Movement Shortcuts">
+                    <span>🎯</span> Movement
+                </button>
                 <input type="file" id="loadStateInput" hidden accept=".json">
             </div>
         </header>
@@ -188,6 +194,17 @@ print(sum(arr))
                     </div>
                     <div id="variablesPanel" class="variables-panel">
                         <div class="empty-state">No variables</div>
+                    </div>
+                </div>
+
+                <!-- Multi-line Visualizer Column -->
+                <div class="panel-column visualizer-column">
+                    <div class="section-header">
+                        <span>📊 Iterations</span>
+                        <button class="small-btn" id="clearVisualizerBtn" title="Clear">🗑</button>
+                    </div>
+                    <div id="visualizerPanel" class="visualizer-panel">
+                        <div class="empty-state">No loops/recursion detected</div>
                     </div>
                 </div>
 
@@ -330,6 +347,61 @@ print(sum(arr))
             </div>
         </div>
 
+        <!-- Cursor Placement Rules Modal -->
+        <div id="cursorPlacementModal" class="modal hidden">
+            <div class="modal-content cursor-rules-modal">
+                <div class="modal-header">
+                    <h2>📍 Cursor Placement Rules</h2>
+                    <button class="modal-close" id="closePlacementBtn">×</button>
+                </div>
+                <div class="modal-body">
+                    <p class="modal-hint">Define expansion rules with <code>\`1</code>, <code>\`2</code>,
+                        <code>\`3</code> for cursor flow when pressing Space.
+                    </p>
+                    <div id="placementRulesList" class="rules-list"></div>
+                    <div class="add-rule-form">
+                        <input type="text" id="placementTrigger" placeholder="Trigger (e.g., def)" />
+                        <span class="rule-arrow">→</span>
+                        <textarea id="placementTemplate" placeholder="Template (e.g., def \`1(\`2):\n    \`3)"
+                            rows="3"></textarea>
+                        <button class="header-btn primary" id="addPlacementRuleBtn">+ Add Rule</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Cursor Movement Rules Modal -->
+        <div id="cursorMovementModal" class="modal hidden">
+            <div class="modal-content cursor-rules-modal">
+                <div class="modal-header">
+                    <h2>🎯 Cursor Movement Rules</h2>
+                    <button class="modal-close" id="closeMovementBtn">×</button>
+                </div>
+                <div class="modal-body">
+                    <p class="modal-hint">Define Alt+key shortcuts. Press Alt, type command, release Alt to execute.</p>
+                    <div id="movementRulesList" class="rules-list"></div>
+                    <div class="add-rule-form">
+                        <input type="text" id="movementShortcut" placeholder="Shortcut (e.g., 1e)" />
+                        <span class="rule-arrow">→</span>
+                        <input type="text" id="movementAction" placeholder="Action (e.g., end of line 1)" />
+                        <select id="movementType">
+                            <option value="line">Go to line</option>
+                            <option value="lineEnd">Go to line end</option>
+                            <option value="lineStart">Go to line start</option>
+                            <option value="custom">Custom JS</option>
+                        </select>
+                        <button class="header-btn primary" id="addMovementRuleBtn">+ Add Rule</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Alt Command Box (appears when Alt is held) -->
+        <div id="altCommandBox" class="alt-command-box hidden">
+            <span class="alt-label">Alt +</span>
+            <span id="altCommandText" class="alt-command-text"></span>
+        </div>
+
         <!-- Toast Notification -->
         <div id="toast" class="toast hidden"></div>
     </div>
@@ -342,6 +414,7 @@ print(sum(arr))
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/closebrackets.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/selection/active-line.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/hint/show-hint.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/search/searchcursor.min.js"></script>
     <script src="auth.js"></script>
     <script src="local-storage.js"></script>
     <script src="firebase-sync.js"></script>
