@@ -1,121 +1,102 @@
-# Firebase & Google Sign-In Setup Guide
+# CodeForces IDE - Setup Guide
 
-Follow these steps to enable Google authentication and cloud sync in your CodeForces IDE.
-
----
-
-## Step 1: Create a Firebase Project
-
-1. Go to [Firebase Console](https://console.firebase.google.com/)
-2. Click **"Add project"**
-3. Enter a project name (e.g., "codeforces-ide")
-4. Disable Google Analytics (optional for this project)
-5. Click **"Create project"**
+Simple setup for Google Sign-In. All data is stored locally in your browser (IndexedDB).
 
 ---
 
-## Step 2: Enable Google Sign-In
+## Quick Start (5 minutes)
 
-1. In Firebase Console, go to **Authentication** → **Sign-in method**
-2. Click on **Google**
-3. Toggle **Enable**
-4. Add your email as the project support email
-5. Click **Save**
-
----
-
-## Step 3: Create Firestore Database
-
-1. Go to **Firestore Database** in Firebase Console
-2. Click **"Create database"**
-3. Choose **Start in test mode** (for development)
-4. Select your preferred region
-5. Click **Enable**
+1. Create a Google Cloud project
+2. Set up OAuth credentials  
+3. Add your Client ID to `auth.js`
+4. Done!
 
 ---
 
-## Step 4: Get Your Configuration
-
-1. Go to **Project Settings** (gear icon) → **General**
-2. Scroll down to "Your apps" and click **Add app** → **Web** (</> icon)
-3. Register your app with a nickname
-4. Copy the `firebaseConfig` object
-
-Your config will look like this:
-```javascript
-const firebaseConfig = {
-  apiKey: "AIza...",
-  authDomain: "your-project.firebaseapp.com",
-  projectId: "your-project-id",
-  storageBucket: "your-project.appspot.com",
-  messagingSenderId: "123456789",
-  appId: "1:123456789:web:abc123"
-};
-```
-
----
-
-## Step 5: Get Google Client ID
+## Step 1: Create Google Cloud Project
 
 1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Select your Firebase project
-3. Go to **APIs & Services** → **Credentials**
-4. You'll see an OAuth 2.0 Client ID created by Firebase
-5. Click on it and copy the **Client ID**
+2. Click **Select a Project** → **New Project**
+3. Name it `codeforces-ide` → **Create**
 
 ---
 
-## Step 6: Update Your Files
+## Step 2: Configure OAuth Consent Screen
 
-### 1. Update `auth.js` (line 9):
+1. Go to **APIs & Services** → **OAuth consent screen**
+2. Select **External** → **Create**
+3. Fill in:
+   - App name: `CodeForces IDE`
+   - User support email: Your email
+   - Developer contact: Your email
+4. Click **Save and Continue** through all steps
+5. Click **Publish App** (to move from Testing to Production)
+
+---
+
+## Step 3: Create OAuth Credentials
+
+1. Go to **APIs & Services** → **Credentials**
+2. Click **Create Credentials** → **OAuth client ID**
+3. Application type: **Web application**
+4. Name: `CodeForces IDE Web`
+5. Add **Authorized JavaScript origins**:
+   - `http://localhost:5500` (for VS Code Live Server)
+   - `http://127.0.0.1:5500`
+   - `https://yourusername.github.io` (for GitHub Pages)
+6. Click **Create**
+7. Copy the **Client ID**
+
+---
+
+## Step 4: Update auth.js
+
+Open `auth.js` and replace line 9:
+
 ```javascript
 const GOOGLE_CLIENT_ID = 'YOUR_CLIENT_ID.apps.googleusercontent.com';
 ```
 
-### 2. Update `firebase-sync.js` (lines 12-19):
-```javascript
-const firebaseConfig = {
-    apiKey: "YOUR_API_KEY",
-    authDomain: "YOUR_PROJECT.firebaseapp.com",
-    projectId: "YOUR_PROJECT_ID",
-    storageBucket: "YOUR_PROJECT.appspot.com",
-    messagingSenderId: "YOUR_SENDER_ID",
-    appId: "YOUR_APP_ID"
-};
-```
+With your actual Client ID from Step 3.
 
 ---
 
-## Step 7: Add Authorized Domains
+## Step 5: Test
 
-1. In Firebase Console, go to **Authentication** → **Settings**
-2. Under **Authorized domains**, add:
-   - `localhost` (for local development)
-   - `127.0.0.1` (optional)
-   - `yourusername.github.io` (for GitHub Pages deployment)
+1. Open `index.html` with Live Server
+2. Click **Sign In**
+3. Complete Google sign-in
+4. ✅ Your profile picture and name should appear
 
 ---
 
-## Testing
+## How It Works
 
-1. Open the IDE in your browser
-2. Click the **"Sign In"** button in the header
-3. Complete the Google sign-in flow
-4. You should see your profile picture and name appear
-5. The sync status should show "Synced"
-6. Try making changes to your code - they will auto-sync to the cloud
+| What | Where |
+|------|-------|
+| Your code, snippets, test cases | IndexedDB (local browser storage) |
+| User identity | Google Sign-In |
+| Cloud backup | Not used (no billing required!) |
+
+Each Google account gets its own separate local storage.
 
 ---
 
 ## Troubleshooting
 
-**Sign-in popup doesn't appear:**
-- Check browser popup blocker
-- Ensure you're on an authorized domain
+**Popup blocked:** Allow popups for your domain
 
-**"Error 400: redirect_uri_mismatch":**
-- Add your domain to authorized origins in Google Cloud Console → Credentials
+**Error 400: redirect_uri_mismatch:** Add your exact URL to authorized origins
 
-**Sync not working:**
-- Check browser console for errors
-- Verify Firestore rules allow read/write for authenticated users
+**Sign-in button doesn't work:** Check browser console, verify Client ID is correct
+
+---
+
+## Files
+
+| File | Purpose |
+|------|---------|
+| `auth.js` | Google Sign-In (add Client ID here) |
+| `local-storage.js` | IndexedDB storage |
+| `firebase-sync.js` | Status display (no Firebase needed) |
+| `app.js` | Main application |

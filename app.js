@@ -21,39 +21,9 @@ let currentProblem = null;
 let autocompleteData = null;
 
 // Snippets for competitive programming (mutable - can be edited by user)
-let userSnippets = {
-    "inp": { name: "Integer Input", code: "n = int(input())" },
-    "inpl": { name: "List Input", code: "arr = list(map(int, input().split()))" },
-    "inp2": { name: "Two Integers", code: "n, m = map(int, input().split())" },
-    "inp3": { name: "Three Integers", code: "a, b, c = map(int, input().split())" },
-    "inps": { name: "String Input", code: "s = input().strip()" },
-    "tc": { name: "Test Cases Loop", code: "t = int(input())\nfor _ in range(t):\n    " },
-    "tcf": { name: "Test Cases Function", code: "def solve():\n    n = int(input())\n    \n\nt = int(input())\nfor _ in range(t):\n    solve()" },
-    "mod": { name: "MOD Constant", code: "MOD = 10**9 + 7" },
-    "inf": { name: "Infinity", code: "INF = float('inf')" },
-    "yes": { name: "Yes/No Output", code: 'print("YES" if condition else "NO")' },
-    "gcd": { name: "GCD Import", code: "from math import gcd" },
-    "lcm": { name: "LCM Function", code: "from math import gcd\ndef lcm(a, b):\n    return a * b // gcd(a, b)" },
-    "sieve": { name: "Sieve of Eratosthenes", code: "def sieve(n):\n    is_prime = [True] * (n + 1)\n    is_prime[0] = is_prime[1] = False\n    for i in range(2, int(n**0.5) + 1):\n        if is_prime[i]:\n            for j in range(i*i, n + 1, i):\n                is_prime[j] = False\n    return is_prime" },
-    "bs": { name: "Binary Search", code: "def binary_search(arr, target):\n    left, right = 0, len(arr) - 1\n    while left <= right:\n        mid = (left + right) // 2\n        if arr[mid] == target:\n            return mid\n        elif arr[mid] < target:\n            left = mid + 1\n        else:\n            right = mid - 1\n    return -1" },
-    "bsl": { name: "Bisect Left", code: "from bisect import bisect_left" },
-    "bsr": { name: "Bisect Right", code: "from bisect import bisect_right" },
-    "dfs": { name: "DFS Template", code: "def dfs(node, visited, graph):\n    visited.add(node)\n    for neighbor in graph[node]:\n        if neighbor not in visited:\n            dfs(neighbor, visited, graph)" },
-    "bfs": { name: "BFS Template", code: "from collections import deque\n\ndef bfs(start, graph):\n    visited = {start}\n    queue = deque([start])\n    while queue:\n        node = queue.popleft()\n        for neighbor in graph[node]:\n            if neighbor not in visited:\n                visited.add(neighbor)\n                queue.append(neighbor)\n    return visited" },
-    "cnt": { name: "Counter", code: "from collections import Counter" },
-    "dd": { name: "DefaultDict", code: "from collections import defaultdict" },
-    "ddl": { name: "DefaultDict List", code: "from collections import defaultdict\ngraph = defaultdict(list)" },
-    "pq": { name: "Priority Queue", code: "import heapq" },
-    "sort": { name: "Sort with Key", code: "arr.sort(key=lambda x: x)" },
-    "rsort": { name: "Reverse Sort", code: "arr.sort(reverse=True)" },
-    "perm": { name: "Permutations", code: "from itertools import permutations" },
-    "comb": { name: "Combinations", code: "from itertools import combinations" },
-    "acc": { name: "Accumulate", code: "from itertools import accumulate" },
-    "psum": { name: "Prefix Sum", code: "from itertools import accumulate\nprefix = list(accumulate(arr, initial=0))" },
-    "graph": { name: "Graph Input", code: "from collections import defaultdict\n\nn, m = map(int, input().split())\ngraph = defaultdict(list)\nfor _ in range(m):\n    u, v = map(int, input().split())\n    graph[u].append(v)\n    graph[v].append(u)" },
-    "matrix": { name: "Matrix Input", code: "n, m = map(int, input().split())\nmatrix = []\nfor _ in range(n):\n    row = list(map(int, input().split()))\n    matrix.append(row)" },
-    "main": { name: "Main Template", code: "def solve():\n    n = int(input())\n    \n\ndef main():\n    t = int(input())\n    for _ in range(t):\n        solve()\n\nif __name__ == \"__main__\":\n    main()" }
-};
+// Use backtick placeholders in code: `1, `2, etc. for parameter replacement
+// Example: "for i in range(`1):\n    sum += `2" with "rep 10 arr[i]" expands with 10 and arr[i]
+let userSnippets = {};
 
 // ============================================
 // DOM Elements
@@ -226,6 +196,18 @@ async function initAuthAndSync() {
                 signOutBtn.addEventListener('click', () => GoogleAuth.signOut());
             }
 
+            // Backup button
+            const backupBtn = document.getElementById('backupBtn');
+            if (backupBtn) {
+                backupBtn.addEventListener('click', async () => {
+                    const userId = GoogleAuth.getUserId();
+                    if (userId) {
+                        await createBackup(userId);
+                        showToast('Backup created!', 'success');
+                    }
+                });
+            }
+
             // If already signed in, load cloud data
             if (GoogleAuth.isSignedIn()) {
                 await loadFromCloud();
@@ -238,69 +220,75 @@ async function initAuthAndSync() {
 
 async function handleSignIn(user) {
     console.log('Signed in as:', user.name);
+    const userId = user.id;
 
-    // Enable cloud sync
-    if (typeof FirebaseSync !== 'undefined') {
-        FirebaseSync.enableSync();
+    // Initialize IndexedDB
+    if (typeof LocalDB !== 'undefined') {
+        await LocalDB.init();
     }
 
-    // Load data from cloud and merge with local
-    await loadFromCloud();
+    // Load user data from IndexedDB
+    const hasLocalData = typeof LocalDB !== 'undefined' && await LocalDB.hasData(userId);
+
+    if (hasLocalData) {
+        await loadFromLocal(userId);
+        console.log('Loaded data from IndexedDB');
+    } else {
+        console.log('No saved data found, starting fresh');
+    }
+
+    if (typeof FirebaseSync !== 'undefined') {
+        FirebaseSync.updateStatus('saved');
+    }
 }
 
-function handleSignOut() {
+async function handleSignOut() {
     console.log('Signed out');
 
-    // Disable cloud sync
+    // Save current data before signing out
+    const userId = typeof GoogleAuth !== 'undefined' ? GoogleAuth.getUserId() : null;
+    if (userId) {
+        await saveToLocal();
+    }
+
     if (typeof FirebaseSync !== 'undefined') {
-        FirebaseSync.disableSync();
+        FirebaseSync.updateStatus('idle');
     }
 }
 
-async function loadFromCloud() {
-    if (typeof GoogleAuth === 'undefined' || typeof FirebaseSync === 'undefined') return;
-
-    const userId = GoogleAuth.getUserId();
-    if (!userId) return;
+// Load data from IndexedDB (primary storage)
+async function loadFromLocal(userId) {
+    if (typeof LocalDB === 'undefined' || !userId) return;
 
     try {
-        const cloudData = await FirebaseSync.load(userId);
+        const localData = await LocalDB.load(userId);
 
-        if (cloudData) {
-            // Get current local data
-            const localData = {
-                code: editor.getValue(),
-                input: elements.inputArea.value,
-                snippets: userSnippets,
-                testCases: testCases
-            };
-
-            // Merge cloud + local (cloud takes priority)
-            const merged = FirebaseSync.merge(localData, cloudData);
-
-            // Apply merged data
-            if (merged.code) editor.setValue(merged.code);
-            if (merged.input) elements.inputArea.value = merged.input;
-            if (merged.snippets) {
-                userSnippets = { ...userSnippets, ...merged.snippets };
-                saveSnippetsToStorage();
+        if (localData) {
+            if (localData.code) editor.setValue(localData.code);
+            if (localData.input) elements.inputArea.value = localData.input;
+            if (localData.snippets) {
+                userSnippets = localData.snippets;
                 populateSnippets();
             }
-            if (merged.testCases && merged.testCases.length > 0) {
-                testCases = merged.testCases;
-                saveTestCases();
+            if (localData.testCases && localData.testCases.length > 0) {
+                testCases = localData.testCases;
                 renderTestCases();
             }
+            if (localData.theme) {
+                currentTheme = localData.theme;
+                applyTheme(currentTheme);
+            }
 
-            console.log('Cloud data loaded and merged');
+            console.log('Data loaded from IndexedDB');
         }
     } catch (error) {
-        console.error('Failed to load from cloud:', error);
+        console.error('Failed to load from IndexedDB:', error);
     }
 }
 
-async function saveToCloud() {
-    if (typeof GoogleAuth === 'undefined' || typeof FirebaseSync === 'undefined') return;
+// Save data to IndexedDB (primary storage)
+async function saveToLocal() {
+    if (typeof GoogleAuth === 'undefined' || typeof LocalDB === 'undefined') return;
     if (!GoogleAuth.isSignedIn()) return;
 
     const userId = GoogleAuth.getUserId();
@@ -314,8 +302,82 @@ async function saveToCloud() {
         theme: currentTheme
     };
 
-    // Use debounced save
-    FirebaseSync.scheduleSave(userId, data);
+    await LocalDB.save(userId, data);
+}
+
+// Debounced save to IndexedDB
+let localSaveTimeout = null;
+function scheduleSaveToLocal() {
+    if (localSaveTimeout) clearTimeout(localSaveTimeout);
+    localSaveTimeout = setTimeout(() => {
+        saveToLocal();
+    }, 1000);
+}
+
+// Create compressed backup to Firebase
+async function createBackup(userId) {
+    if (typeof FirebaseSync === 'undefined' || !userId) return;
+
+    const data = {
+        code: editor.getValue(),
+        input: elements.inputArea.value,
+        snippets: userSnippets,
+        testCases: testCases,
+        theme: currentTheme
+    };
+
+    await FirebaseSync.saveBackup(userId, data);
+}
+
+// Restore from Firebase backup (disaster recovery)
+async function restoreFromBackup(userId) {
+    if (typeof FirebaseSync === 'undefined' || !userId) return;
+
+    try {
+        const backupData = await FirebaseSync.loadBackup(userId);
+
+        if (backupData) {
+            // Apply restored data
+            if (backupData.code) editor.setValue(backupData.code);
+            if (backupData.input) elements.inputArea.value = backupData.input;
+            if (backupData.snippets) {
+                userSnippets = backupData.snippets;
+                populateSnippets();
+            }
+            if (backupData.testCases && backupData.testCases.length > 0) {
+                testCases = backupData.testCases;
+                renderTestCases();
+            }
+            if (backupData.theme) {
+                currentTheme = backupData.theme;
+                applyTheme(currentTheme);
+            }
+
+            // Save restored data to IndexedDB
+            await saveToLocal();
+
+            showToast('Data restored from backup!', 'success');
+            console.log('Data restored from Firebase backup');
+        } else {
+            console.log('No backup found in Firebase');
+        }
+    } catch (error) {
+        console.error('Failed to restore from backup:', error);
+    }
+}
+
+// Legacy function for compatibility - now uses IndexedDB
+async function loadFromCloud() {
+    if (typeof GoogleAuth === 'undefined') return;
+    const userId = GoogleAuth.getUserId();
+    if (userId) {
+        await loadFromLocal(userId);
+    }
+}
+
+// Legacy function - redirects to IndexedDB save + optional backup
+async function saveToCloud() {
+    scheduleSaveToLocal();
 }
 
 async function initPyodide() {
@@ -656,21 +718,93 @@ function handleTab(cm) {
     const cursor = cm.getCursor();
     const line = cm.getLine(cursor.line);
     const beforeCursor = line.substring(0, cursor.ch);
-    const match = beforeCursor.match(/(\w+)$/);
 
-    if (match && userSnippets[match[1]]) {
-        const keyword = match[1];
-        const snippet = userSnippets[keyword];
-        cm.replaceRange(
-            snippet.code,
-            { line: cursor.line, ch: cursor.ch - keyword.length },
-            cursor
-        );
-        return;
+    // Try to match snippet keyword with optional space-separated arguments
+    // Format: keyword arg1 arg2 arg3...
+    // Example: "rep 10 arr[i]" expands snippet "rep" with `1->10, `2->arr[i]
+    const snippetMatch = beforeCursor.match(/(\w+)((?:\s+\S+)*)$/);
+
+    if (snippetMatch) {
+        const keyword = snippetMatch[1];
+        const argsString = snippetMatch[2].trim();
+
+        if (userSnippets[keyword]) {
+            const snippet = userSnippets[keyword];
+            let expandedCode = snippet.code;
+
+            // Parse arguments if provided
+            if (argsString) {
+                const args = parseSnippetArgs(argsString);
+                expandedCode = replaceSnippetPlaceholders(snippet.code, args);
+            }
+
+            // Calculate start position (keyword + args)
+            const fullMatchLength = snippetMatch[0].length;
+            cm.replaceRange(
+                expandedCode,
+                { line: cursor.line, ch: cursor.ch - fullMatchLength },
+                cursor
+            );
+            return;
+        }
     }
 
     // Default tab behavior
     cm.replaceSelection('    ');
+}
+
+/**
+ * Parse space-separated arguments, respecting quotes for multi-word args
+ * Examples: 
+ *   "10 arr[i]" -> ["10", "arr[i]"]
+ *   "n 'hello world'" -> ["n", "hello world"]
+ */
+function parseSnippetArgs(argsString) {
+    const args = [];
+    let current = '';
+    let inQuote = false;
+    let quoteChar = '';
+
+    for (let i = 0; i < argsString.length; i++) {
+        const char = argsString[i];
+
+        if ((char === '"' || char === "'") && !inQuote) {
+            inQuote = true;
+            quoteChar = char;
+        } else if (char === quoteChar && inQuote) {
+            inQuote = false;
+            quoteChar = '';
+        } else if (char === ' ' && !inQuote) {
+            if (current) {
+                args.push(current);
+                current = '';
+            }
+        } else {
+            current += char;
+        }
+    }
+
+    if (current) {
+        args.push(current);
+    }
+
+    return args;
+}
+
+/**
+ * Replace backtick placeholders in snippet code with provided arguments
+ * `1 -> first arg, `2 -> second arg, etc.
+ */
+function replaceSnippetPlaceholders(code, args) {
+    let result = code;
+
+    // Replace `1, `2, etc. with corresponding arguments
+    for (let i = 0; i < args.length; i++) {
+        const placeholder = '`' + (i + 1);
+        result = result.split(placeholder).join(args[i]);
+    }
+
+    return result;
 }
 
 function populateSnippets() {
