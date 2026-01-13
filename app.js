@@ -50,6 +50,12 @@ const elements = {
     refreshVarsBtn: document.getElementById('refreshVarsBtn'),
     saveStatus: document.getElementById('saveStatus'),
 
+    // Problem Panel
+    problemPanel: document.getElementById('problemPanel'),
+    problemStatement: document.getElementById('problemStatement'),
+    toggleProblemBtn: document.getElementById('toggleProblemBtn'),
+    problemResizer: document.getElementById('problemResizer'),
+
     // Timer
     timerDisplay: document.getElementById('timerDisplay'),
     timerStartBtn: document.getElementById('timerStartBtn'),
@@ -445,7 +451,9 @@ function initEditor() {
         styleActiveLine: true,
         extraKeys: {
             'Tab': handleTab,
-            'Shift-Enter': () => runCode(false) // Explicit run
+            'Shift-Enter': () => runCode(false), // Explicit run
+            'Space': handleSmartSpace,
+            'Enter': handleSmartEnter
         }
     });
 
@@ -808,6 +816,146 @@ function replaceSnippetPlaceholders(code, args) {
     return result;
 }
 
+// ============================================
+// Smart Snippets - Auto Expansion with Cursor Placement
+// ============================================
+let smartSnippetsEnabled = true; // Can be toggled
+
+/**
+ * Handle Space key for smart expansion of Python constructs
+ * Examples:
+ *   def  → def (): with cursor at function name position
+ *   if   → if : with cursor after if
+ *   for  → for  in : with cursor after for
+ */
+function handleSmartSpace(cm) {
+    if (!smartSnippetsEnabled) {
+        return CodeMirror.Pass;
+    }
+
+    const cursor = cm.getCursor();
+    const line = cm.getLine(cursor.line);
+    const beforeCursor = line.substring(0, cursor.ch).trim();
+    const indent = line.match(/^\s*/)[0];
+
+    // Smart expansions for Space key
+    const expansions = {
+        'def': { text: 'def (): ', cursorOffset: -4 },
+        'class': { text: 'class : ', cursorOffset: -2 },
+        'if': { text: 'if : ', cursorOffset: -2 },
+        'elif': { text: 'elif : ', cursorOffset: -2 },
+        'while': { text: 'while : ', cursorOffset: -2 },
+        'for': { text: 'for  in : ', cursorOffset: -6 },
+        'with': { text: 'with  as : ', cursorOffset: -6 },
+        'try': { text: 'try: ', cursorOffset: 0 },
+        'except': { text: 'except : ', cursorOffset: -2 },
+        'return': { text: 'return  ', cursorOffset: -1 },
+        'print': { text: 'print() ', cursorOffset: -2 },
+        'lambda': { text: 'lambda : ', cursorOffset: -2 }
+    };
+
+    if (expansions[beforeCursor]) {
+        const exp = expansions[beforeCursor];
+        // Replace the keyword with expanded form
+        cm.replaceRange(
+            indent + exp.text,
+            { line: cursor.line, ch: 0 },
+            cursor
+        );
+        // Position cursor
+        const newCursor = cm.getCursor();
+        cm.setCursor({ line: newCursor.line, ch: newCursor.ch + exp.cursorOffset });
+        return;
+    }
+
+    // Default: insert space
+    return CodeMirror.Pass;
+}
+
+/**
+ * Handle Enter key for smart expansion
+ * Examples:
+ *   else → else: with newline and indentation
+ *   Press enter inside brackets [] keeps them intact
+ */
+function handleSmartEnter(cm) {
+    if (!smartSnippetsEnabled) {
+        return CodeMirror.Pass;
+    }
+
+    const cursor = cm.getCursor();
+    const line = cm.getLine(cursor.line);
+    const beforeCursor = line.substring(0, cursor.ch);
+    const afterCursor = line.substring(cursor.ch);
+    const indent = line.match(/^\s*/)[0];
+
+    // Check for else, finally, try at end of line
+    const trimmedBefore = beforeCursor.trim();
+
+    // Auto-add colon and newline with indentation for else, finally
+    const colonKeywords = ['else', 'finally', 'try'];
+    if (colonKeywords.includes(trimmedBefore) && afterCursor.trim() === '') {
+        cm.replaceRange(
+            indent + trimmedBefore + ':\n' + indent + '    ',
+            { line: cursor.line, ch: 0 },
+            { line: cursor.line, ch: line.length }
+        );
+        return;
+    }
+
+    // Handle Enter inside brackets - keep closing bracket on same line
+    // E.g., [1,2,3|] press Enter → [1,2,3, with cursor on new line, ] stays
+    const bracketPairs = { '[': ']', '{': '}', '(': ')' };
+
+    // Check if cursor is right before a closing bracket
+    if (afterCursor.length > 0) {
+        const nextChar = afterCursor[0];
+        const openBrackets = Object.keys(bracketPairs);
+        const closeBrackets = Object.values(bracketPairs);
+
+        if (closeBrackets.includes(nextChar)) {
+            // Find the matching open bracket in beforeCursor
+            const matchingOpen = openBrackets[closeBrackets.indexOf(nextChar)];
+            let depth = 1;
+            for (let i = beforeCursor.length - 1; i >= 0 && depth > 0; i--) {
+                if (beforeCursor[i] === nextChar) depth++;
+                if (beforeCursor[i] === matchingOpen) depth--;
+            }
+
+            // If brackets are balanced, add newline with extra indent and keep bracket
+            if (depth === 0) {
+                cm.replaceRange(
+                    '\n' + indent + '    ',
+                    cursor,
+                    cursor
+                );
+                // Move closing bracket to next line with proper indent
+                setTimeout(() => {
+                    const newCursor = cm.getCursor();
+                    cm.replaceRange(
+                        '\n' + indent,
+                        { line: newCursor.line, ch: cm.getLine(newCursor.line).length },
+                        { line: newCursor.line, ch: cm.getLine(newCursor.line).length }
+                    );
+                    cm.setCursor(newCursor);
+                }, 0);
+                return;
+            }
+        }
+    }
+
+    // Default: normal Enter behavior
+    return CodeMirror.Pass;
+}
+
+/**
+ * Toggle smart snippets on/off
+ */
+function toggleSmartSnippets() {
+    smartSnippetsEnabled = !smartSnippetsEnabled;
+    showToast(smartSnippetsEnabled ? 'Smart Snippets enabled' : 'Smart Snippets disabled', 'success');
+}
+
 function populateSnippets() {
     elements.snippetsGrid.innerHTML = Object.entries(userSnippets)
         .map(([keyword, snippet]) => `
@@ -971,6 +1119,14 @@ async function updateVariables() {
                 <span class="var-type">${variableTypes[v.name] || v.type}</span>
             </div>
             ${valueDisplay}
+            ${(() => {
+                // Try to render data structure visualization
+                const dsType = detectDataStructureType(v.name, value);
+                if (dsType && value !== undefined) {
+                    return renderDataStructure(v.name, String(value), dsType);
+                }
+                return '';
+            })()}
         </div>
     `;
     }).join('');
@@ -1133,8 +1289,10 @@ function saveCode() {
     try {
         localStorage.setItem('cf-ide-code', editor.getValue());
         localStorage.setItem('cf-ide-input', elements.inputArea.value);
-        elements.saveStatus.style.color = 'var(--accent-success)';
-        elements.saveStatus.title = 'Auto-saved';
+        if (elements.saveStatus) {
+            elements.saveStatus.style.color = 'var(--accent-success)';
+            elements.saveStatus.title = 'Auto-saved';
+        }
 
         // Also save to cloud if signed in
         saveToCloud();
@@ -1438,14 +1596,40 @@ function updateLineComplexity() {
 
         let timeC = '0';
         let spaceC = '0';
+        let lineNum = idx + 1; // Third column is line number (1-indexed)
         let colorClass = 'c-const';
         let spaceColor = 'c-const';
 
         if (!trimmed || trimmed.startsWith('#')) {
-            // Defaults 0
+            // Defaults 0 | 0 | lineNum
         } else {
             timeC = '1';
             spaceC = '1';
+        }
+
+        // Detect list/array input - space complexity is n
+        if (/list\s*\(.*input|input\(\)\.split|map\s*\(.*input/.test(trimmed)) {
+            spaceC = 'n';
+            spaceColor = 'c-linear';
+        }
+        // Detect simple variable assignment (not list)
+        else if (/=.*input\(\)/.test(trimmed) && !/list|split|map/.test(trimmed)) {
+            spaceC = '1';
+        }
+        // Detect list/array creation
+        else if (/\[\s*\]|list\(|=\s*\[/.test(trimmed)) {
+            spaceC = 'n';
+            spaceColor = 'c-linear';
+        }
+        // Detect dict/set creation
+        else if (/\{\s*\}|dict\(|set\(|defaultdict|Counter/.test(trimmed)) {
+            spaceC = 'n';
+            spaceColor = 'c-linear';
+        }
+        // Detect 2D array creation
+        else if (/\[\[/.test(trimmed) || /\[.*for.*for/.test(trimmed)) {
+            spaceC = 'n²';
+            spaceColor = 'c-quad';
         }
 
         // Detect loop start
@@ -1460,20 +1644,6 @@ function updateLineComplexity() {
         else if (/.sort\(/.test(trimmed) || /sorted\(/.test(trimmed)) {
             timeC = 'nlogn';
             colorClass = 'c-nlogn';
-        }
-        else if (/\[\s*\]|list\(|=\s*\[/.test(trimmed) || /range\(/.test(trimmed) && /list/.test(trimmed)) {
-            if (loopDepth > 0) {
-                timeC = loopDepth === 1 ? 'n' : loopDepth === 2 ? 'n²' : 'n³';
-            }
-            colorClass = loopDepth > 0 ? (loopDepth === 1 ? 'c-linear' : loopDepth === 2 ? 'c-quad' : 'c-cubic') : 'c-space';
-        }
-        else if (/\{\s*\}|dict\(|set\(|defaultdict|Counter/.test(trimmed)) {
-            if (loopDepth > 0) {
-                timeC = loopDepth === 1 ? 'n' : loopDepth === 2 ? 'n²' : 'n³';
-                colorClass = loopDepth === 1 ? 'c-linear' : loopDepth === 2 ? 'c-quad' : 'c-cubic';
-            } else {
-                colorClass = 'c-space';
-            }
         }
         else if (/bisect/.test(trimmed)) {
             timeC = 'logn';
@@ -1492,8 +1662,8 @@ function updateLineComplexity() {
         // Create marker
         const marker = document.createElement("div");
         marker.className = "complexity-marker";
-        // Format: val |
-        marker.innerHTML = `<span class="${colorClass}">${timeC}</span><span class="cg-sep">|</span><span class="${spaceColor}">${spaceC}</span><span class="cg-sep">|</span>`;
+        // Format: time | space | lineNumber
+        marker.innerHTML = `<span class="${colorClass}">${timeC}</span><span class="cg-sep">|</span><span class="${spaceColor}">${spaceC}</span><span class="cg-sep">|</span><span class="line-num">${lineNum}</span>`;
         if (timeC === '0') marker.style.opacity = '0.3';
 
         editor.setGutterMarker(idx, "complexity-gutter", marker);
@@ -2126,6 +2296,340 @@ function setupAutocomplete(cm) {
 }
 
 // ============================================
+// Convert Dropdown Functionality
+// ============================================
+function initConvertDropdown() {
+    const convertBtn = document.getElementById('convertBtn');
+    const convertMenu = document.getElementById('convertMenu');
+
+    if (!convertBtn || !convertMenu) return;
+
+    // Toggle dropdown
+    convertBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        convertMenu.classList.toggle('hidden');
+    });
+
+    // Handle conversion selection
+    convertMenu.querySelectorAll('button').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const targetType = e.target.dataset.type;
+            applyConversion(targetType);
+            convertMenu.classList.add('hidden');
+        });
+    });
+
+    // Close dropdown when clicking outside
+    document.addEventListener('click', () => {
+        convertMenu.classList.add('hidden');
+    });
+}
+
+function applyConversion(targetType) {
+    if (!editor) return;
+
+    const selection = editor.getSelection();
+    if (!selection) {
+        showToast('Select code to convert first', 'error');
+        return;
+    }
+
+    // Conversion wrappers for each type
+    const wrappers = {
+        'int': `int(${selection})`,
+        'str': `str(${selection})`,
+        'float': `float(${selection})`,
+        'list': `list(${selection})`,
+        'set': `set(${selection})`,
+        'dict': `dict(${selection})`,
+        'tuple': `tuple(${selection})`,
+        'bool': `bool(${selection})`
+    };
+
+    if (wrappers[targetType]) {
+        editor.replaceSelection(wrappers[targetType]);
+        showToast(`Converted to ${targetType}`, 'success');
+    }
+}
+
+// ============================================
+// Alt Key Quick Cursor Actions
+// ============================================
+let altBuffer = ''; // Buffer to collect digits after Alt press
+let altTimeout = null;
+
+function initAltShortcuts() {
+    if (!editor) return;
+
+    // Listen for keydown on the editor wrapper
+    editor.getWrapperElement().addEventListener('keydown', (e) => {
+        if (e.altKey && !e.ctrlKey && !e.shiftKey && !e.metaKey) {
+            const key = e.key;
+
+            // Handle digit keys for line navigation
+            if (/^[0-9]$/.test(key)) {
+                e.preventDefault();
+                altBuffer += key;
+
+                // Clear timeout and set new one
+                if (altTimeout) clearTimeout(altTimeout);
+                altTimeout = setTimeout(() => {
+                    if (altBuffer) {
+                        const lineNum = parseInt(altBuffer, 10);
+                        goToLine(lineNum, false);
+                        altBuffer = '';
+                    }
+                }, 500); // Wait 500ms for more digits
+                return;
+            }
+
+            // Handle 'e' for end of line
+            if (key === 'e' && altBuffer) {
+                e.preventDefault();
+                const lineNum = parseInt(altBuffer, 10);
+                goToLine(lineNum, true);
+                altBuffer = '';
+                if (altTimeout) clearTimeout(altTimeout);
+                return;
+            }
+        }
+    });
+
+    // Clear buffer when Alt is released
+    editor.getWrapperElement().addEventListener('keyup', (e) => {
+        if (!e.altKey && altBuffer) {
+            // Execute navigation if there's a pending buffer
+            if (altTimeout) clearTimeout(altTimeout);
+            const lineNum = parseInt(altBuffer, 10);
+            if (lineNum > 0) {
+                goToLine(lineNum, false);
+            }
+            altBuffer = '';
+        }
+    });
+}
+
+/**
+ * Go to a specific line number
+ * @param {number} lineNum - 1-indexed line number
+ * @param {boolean} goToEnd - If true, go to end of line; otherwise start
+ */
+function goToLine(lineNum, goToEnd = false) {
+    if (!editor) return;
+
+    const totalLines = editor.lineCount();
+    const targetLine = Math.min(Math.max(1, lineNum), totalLines) - 1; // Convert to 0-indexed
+
+    const line = editor.getLine(targetLine);
+    const ch = goToEnd ? (line ? line.length : 0) : 0;
+
+    editor.setCursor({ line: targetLine, ch: ch });
+    editor.scrollIntoView({ line: targetLine, ch: ch }, 200);
+    editor.focus();
+
+    showToast(`Line ${lineNum}${goToEnd ? ' (end)' : ''}`, 'success');
+}
+
+// ============================================
+// Problem Panel Functionality
+// ============================================
+function initProblemPanel() {
+    // Toggle collapse
+    if (elements.toggleProblemBtn && elements.problemPanel) {
+        elements.toggleProblemBtn.addEventListener('click', () => {
+            const isCollapsed = elements.problemPanel.classList.toggle('collapsed');
+            elements.toggleProblemBtn.textContent = isCollapsed ? '▶' : '◀';
+        });
+    }
+
+    // Resizable panel
+    if (elements.problemResizer && elements.problemPanel) {
+        let isResizing = false;
+
+        elements.problemResizer.addEventListener('mousedown', (e) => {
+            isResizing = true;
+            document.body.style.cursor = 'col-resize';
+            e.preventDefault();
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!isResizing) return;
+            const newWidth = e.clientX;
+            if (newWidth >= 200 && newWidth <= 500) {
+                elements.problemPanel.style.width = newWidth + 'px';
+            }
+        });
+
+        document.addEventListener('mouseup', () => {
+            isResizing = false;
+            document.body.style.cursor = '';
+        });
+    }
+
+    // Load saved problem statement
+    const saved = localStorage.getItem('cf-ide-problem');
+    if (saved && elements.problemStatement) {
+        elements.problemStatement.value = saved;
+    }
+
+    // Auto-save problem statement
+    if (elements.problemStatement) {
+        elements.problemStatement.addEventListener('input', debounce(() => {
+            localStorage.setItem('cf-ide-problem', elements.problemStatement.value);
+        }, 500));
+    }
+}
+
+// ============================================
+// Data Structure Visualization
+// ============================================
+function detectDataStructureType(name, value) {
+    const strVal = String(value);
+
+    // Detect graph (adjacency list)
+    if (name.toLowerCase().includes('graph') || name.toLowerCase().includes('adj')) {
+        if (strVal.startsWith('{') || strVal.startsWith('defaultdict')) {
+            return 'graph';
+        }
+    }
+
+    // Detect tree structure
+    if (name.toLowerCase().includes('tree') || name.toLowerCase().includes('parent') || name.toLowerCase().includes('child')) {
+        return 'tree';
+    }
+
+    // Detect heap
+    if (name.toLowerCase().includes('heap') || name.toLowerCase().includes('pq') || name.toLowerCase().includes('priority')) {
+        return 'heap';
+    }
+
+    // Detect adjacency matrix (2D list with numeric values)
+    if (strVal.startsWith('[[') && /^\[\[[\d,\s\[\]]+\]\]$/.test(strVal.replace(/\s/g, ''))) {
+        return 'matrix';
+    }
+
+    return null;
+}
+
+function renderDataStructure(name, value, type) {
+    switch (type) {
+        case 'graph':
+            return renderGraph(name, value);
+        case 'tree':
+            return renderTree(name, value);
+        case 'heap':
+            return renderHeap(name, value);
+        case 'matrix':
+            return renderMatrix(name, value);
+        default:
+            return null;
+    }
+}
+
+function renderGraph(name, value) {
+    // Parse adjacency list
+    let html = `<div class="ds-visual ds-graph">`;
+    html += `<div class="ds-title">📊 ${name}</div>`;
+    html += `<div class="ds-nodes">`;
+
+    try {
+        // Try to parse as dict-like structure
+        const parsed = parseAdjList(value);
+        Object.entries(parsed).forEach(([node, neighbors]) => {
+            html += `<div class="ds-node">`;
+            html += `<span class="node-id">${node}</span>`;
+            html += `<span class="node-edges">→ [${neighbors.join(', ')}]</span>`;
+            html += `</div>`;
+        });
+    } catch (e) {
+        html += `<span class="ds-error">Parse error</span>`;
+    }
+
+    html += `</div></div>`;
+    return html;
+}
+
+function renderTree(name, value) {
+    let html = `<div class="ds-visual ds-tree">`;
+    html += `<div class="ds-title">🌳 ${name}</div>`;
+    html += `<div class="ds-tree-view">${value}</div>`;
+    html += `</div>`;
+    return html;
+}
+
+function renderHeap(name, value) {
+    let html = `<div class="ds-visual ds-heap">`;
+    html += `<div class="ds-title">📦 ${name}</div>`;
+
+    try {
+        // Parse as array and show as binary tree levels
+        const arr = JSON.parse(value.replace(/'/g, '"'));
+        html += `<div class="heap-levels">`;
+
+        let level = 0;
+        let idx = 0;
+        while (idx < arr.length) {
+            const levelSize = Math.pow(2, level);
+            html += `<div class="heap-level">`;
+            for (let i = 0; i < levelSize && idx < arr.length; i++, idx++) {
+                html += `<span class="heap-node">${arr[idx]}</span>`;
+            }
+            html += `</div>`;
+            level++;
+        }
+
+        html += `</div>`;
+    } catch (e) {
+        html += `<div class="ds-raw">${value}</div>`;
+    }
+
+    html += `</div>`;
+    return html;
+}
+
+function renderMatrix(name, value) {
+    let html = `<div class="ds-visual ds-matrix">`;
+    html += `<div class="ds-title">📐 ${name}</div>`;
+
+    try {
+        const matrix = JSON.parse(value);
+        html += `<table class="matrix-table">`;
+        matrix.forEach(row => {
+            html += `<tr>`;
+            row.forEach(cell => {
+                html += `<td>${cell}</td>`;
+            });
+            html += `</tr>`;
+        });
+        html += `</table>`;
+    } catch (e) {
+        html += `<div class="ds-raw">${value}</div>`;
+    }
+
+    html += `</div>`;
+    return html;
+}
+
+function parseAdjList(value) {
+    // Simple parser for {0: [1, 2], 1: [0]} format
+    const result = {};
+    const clean = value.replace(/defaultdict\(<class '.*?'>,\s*/, '').replace(/\)$/, '');
+    const match = clean.match(/\{(.*)\}/);
+    if (match) {
+        const content = match[1];
+        const pairs = content.split(/,\s*(?=\d+:)/);
+        pairs.forEach(pair => {
+            const [key, val] = pair.split(':');
+            if (key && val) {
+                const neighbors = val.match(/\[(.*?)\]/);
+                result[key.trim()] = neighbors ? neighbors[1].split(',').map(n => n.trim()) : [];
+            }
+        });
+    }
+    return result;
+}
+
+// ============================================
 // Start App
 // ============================================
 document.addEventListener('DOMContentLoaded', () => {
@@ -2135,4 +2639,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initTestCases();
     setupNewFeatureListeners();
     loadAutocompleteData();
+    initConvertDropdown();
+    initAltShortcuts();
+    initProblemPanel();
 });

@@ -418,10 +418,87 @@ body {
     background: var(--accent-primary);
 }
 
-/* Left Panel: Editor + IO */
+/* ========================================
+   Problem Statement Panel (Leftmost)
+   ======================================== */
+.problem-panel {
+    width: 280px;
+    min-width: 200px;
+    max-width: 500px;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-secondary);
+    border-right: 1px solid var(--border-color);
+    flex-shrink: 0;
+    transition: width 0.2s ease;
+}
+
+.problem-panel.collapsed {
+    width: 40px;
+    min-width: 40px;
+}
+
+.problem-panel.collapsed .problem-content {
+    display: none;
+}
+
+.problem-panel.collapsed .section-header span {
+    display: none;
+}
+
+.problem-panel .section-header {
+    padding: 8px 10px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.problem-actions {
+    display: flex;
+    gap: 4px;
+}
+
+.problem-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+#problemStatement {
+    flex: 1;
+    width: 100%;
+    padding: 10px;
+    background: var(--bg-primary);
+    border: none;
+    color: var(--text-primary);
+    font-family: var(--font-ui);
+    font-size: 12px;
+    line-height: 1.5;
+    resize: none;
+    outline: none;
+}
+
+#problemStatement::placeholder {
+    color: var(--text-muted);
+}
+
+.problem-resizer {
+    width: 4px;
+    background: var(--bg-secondary);
+    cursor: col-resize;
+    flex-shrink: 0;
+    transition: background 0.2s;
+}
+
+.problem-resizer:hover {
+    background: var(--accent-primary);
+}
+
+/* Left Panel: Editor + IO (adjusted) */
 .left-panel {
-    width: 60%;
-    /* Initial width */
+    flex: 1;
+    /* Take remaining space */
     display: flex;
     flex-direction: column;
     min-width: 200px;
@@ -548,7 +625,7 @@ body {
     white-space: pre-wrap;
 }
 
-/* Right Panel Grid Layout - 3 Columns */
+/* Right Panel Grid Layout - 2 Columns */
 .right-panel-grid {
     display: flex;
     flex: 1;
@@ -574,14 +651,11 @@ body {
     flex-shrink: 0;
 }
 
-.complexity-column {
-    width: 140px;
-    flex-shrink: 0;
-}
-
 .testcases-column {
-    flex: 1;
-    min-width: 120px;
+    width: 180px;
+    min-width: 150px;
+    max-width: 220px;
+    flex-shrink: 0;
 }
 
 .panel-section {
@@ -592,17 +666,6 @@ body {
 .testcases-section {
     flex: 1;
     overflow: hidden;
-}
-
-.complexity-section {
-    flex: 1;
-}
-
-/* Complexity panel in column */
-.complexity-column .complexity-panel {
-    flex: 1;
-    padding: 8px;
-    overflow-y: auto;
 }
 
 /* Test cases in column */
@@ -2073,25 +2136,183 @@ body,
 
 /* Complexity Gutter Styles */
 .complexity-gutter {
-    width: 80px;
+    width: 90px !important;
+    min-width: 90px;
     background: var(--bg-secondary);
-    border-right: 1px solid var(--border-color);
+    border-right: 2px solid var(--border-color);
 }
 
 .complexity-marker {
-    text-align: right;
-    padding-right: 8px;
-    font-size: 11px;
+    text-align: center;
+    padding: 0 6px;
+    font-size: 10px;
     font-family: var(--font-mono);
     color: var(--text-muted);
     display: flex;
-    justify-content: flex-end;
+    justify-content: center;
     align-items: center;
+    gap: 2px;
+    background: var(--bg-secondary);
+    white-space: nowrap;
 }
 
 .cg-sep {
     color: var(--border-color);
-    margin-left: 6px;
+    margin: 0 2px;
     opacity: 0.5;
+    font-size: 9px;
+}
+
+.line-num {
+    color: var(--text-muted);
+    font-size: 9px;
+    min-width: 16px;
+    text-align: right;
+}
+
+/* ========================================
+   Variable Actions & Convert Dropdown
+   ======================================== */
+.var-actions {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+
+.convert-dropdown {
+    position: relative;
+}
+
+.convert-btn {
+    font-size: 12px;
+}
+
+.convert-menu {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
+    min-width: 100px;
+    z-index: 100;
+    padding: 4px 0;
+    margin-top: 4px;
+}
+
+.convert-menu.hidden {
+    display: none;
+}
+
+.convert-menu button {
+    display: block;
+    width: 100%;
+    padding: 6px 12px;
+    background: transparent;
+    border: none;
+    color: var(--text-primary);
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.convert-menu button:hover {
+    background: var(--accent-primary);
+    color: white;
+}
+
+/* ========================================
+   Data Structure Visualizations
+   ======================================== */
+.ds-visual {
+    margin-top: 6px;
+    padding: 8px;
+    background: var(--bg-tertiary);
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-color);
+    font-size: 11px;
+}
+
+.ds-title {
+    font-weight: 600;
+    margin-bottom: 6px;
+    color: var(--accent-primary);
+}
+
+.ds-nodes {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.ds-node {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.node-id {
+    background: var(--accent-primary);
+    color: white;
+    padding: 2px 6px;
+    border-radius: 50%;
+    font-weight: 600;
+    min-width: 20px;
+    text-align: center;
+}
+
+.node-edges {
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+}
+
+/* Heap visualization */
+.heap-levels {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+}
+
+.heap-level {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+}
+
+.heap-node {
+    background: var(--accent-success);
+    color: white;
+    padding: 4px 8px;
+    border-radius: 50%;
+    font-weight: 500;
+    min-width: 24px;
+    text-align: center;
+}
+
+/* Matrix visualization */
+.matrix-table {
+    border-collapse: collapse;
+    font-family: var(--font-mono);
     font-size: 10px;
+}
+
+.matrix-table td {
+    border: 1px solid var(--border-color);
+    padding: 3px 6px;
+    text-align: center;
+    min-width: 24px;
+}
+
+.matrix-table tr:nth-child(even) td {
+    background: var(--bg-elevated);
+}
+
+.ds-raw,
+.ds-tree-view {
+    font-family: var(--font-mono);
+    color: var(--text-secondary);
+    word-break: break-all;
 }

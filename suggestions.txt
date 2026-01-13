@@ -36,3 +36,25 @@ and make 1 as absolute green while going red as the complexity rises, with red f
 and make the variable box a bit wider, shifting editor to a bit left and test case manager to a bit right
 and why is 1 purple in there, and really widen the variable i aim to add more buttons to it
 for the space too, use the same colour coding
+--done-- fixed to show 0 | 0 | 0 format with three columns, and list input now shows n space
+well we can remove the complexity block since we are doing it per line...
+and clear up the ui for complexity its stacked up....
+--done-- removed complexity panel, cleaned up UI
+output is not working as intended
+--done-- output verified working
+remove that green dot between the top strip and the coding area above the add button
+--done-- removed green save-status dot
+the if else snippets idea(cursor auto moving as intended when space/enter button is clicked, seperate button for it)
+like for example
+if i type def and press space, it automatically write it as def (): and places the cursor before bracket to write the function name, and then next space will take me inside the bracket, and next space will take me to next line with indentation
+also another example lets say i write l1 = [1,2,3] and press enter inside of 3, then instead of taking brackets to next line it takes the cursor keeping the bracket intact, and automa
+also if i type in else and press enter it automatically adds colon and shifts the cursor to next line with indentation
+so like things like this
+--done-- smart snippets: def/if/else/for/while/class + space/enter auto-expands with cursor positioning
+add convert button that allows converting from one datatype to another, where it will be a loop icon and clicking on it opens a dropdown where we can choose which datatype to convert to
+--done-- added 🔄 convert button in Variables panel with dropdown (int, str, float, list, set, dict, tuple, bool)
+also quick cursor action using alt
+like if i enter 1 while pressing alt the cursor will go to 1st line without changing its horizontal position
+if i enter 1e it takes me to the end of 1st line
+--done-- Alt+number goes to line, Alt+number+e goes to end of line
+and add option like snippets where i can add my own set of rules using alt

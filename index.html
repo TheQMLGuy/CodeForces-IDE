@@ -94,13 +94,26 @@
 
         <!-- Main Content -->
         <main class="main-content">
+            <!-- Problem Statement Panel (leftmost) -->
+            <div class="problem-panel" id="problemPanel">
+                <div class="section-header">
+                    <span>📄 Problem</span>
+                    <div class="problem-actions">
+                        <button class="small-btn" id="toggleProblemBtn" title="Toggle panel">◀</button>
+                    </div>
+                </div>
+                <div class="problem-content" id="problemContent">
+                    <textarea id="problemStatement"
+                        placeholder="Paste problem statement here or use Parse button to import from Codeforces..."></textarea>
+                </div>
+            </div>
+            <div class="problem-resizer" id="problemResizer"></div>
+
             <!-- Left Panel: Editor + IO -->
             <div class="left-panel">
                 <!-- Editor Section -->
                 <div class="editor-section">
                     <div class="panel-header">
-
-                        <span class="save-status" id="saveStatus" title="Auto-saved to browser">●</span>
                         <div class="quick-actions">
                             <span class="quick-label">+ Add:</span>
                             <button class="quick-btn" data-type="int" title="Integer input">Int</button>
@@ -143,7 +156,6 @@ print(sum(arr))
                             </div>
                         </div>
                         <div id="outputArea" class="output-area">
-                            <span class="output-placeholder">Output...</span>
                         </div>
                     </div>
                 </div>
@@ -156,20 +168,26 @@ print(sum(arr))
                 <div class="panel-column variables-column">
                     <div class="section-header">
                         <span>🔧 Variables</span>
-                        <button class="small-btn" id="refreshVarsBtn">↻</button>
+                        <div class="var-actions">
+                            <div class="convert-dropdown" id="convertDropdown">
+                                <button class="small-btn convert-btn" id="convertBtn"
+                                    title="Convert datatype">🔄</button>
+                                <div class="convert-menu hidden" id="convertMenu">
+                                    <button data-type="int">→ int</button>
+                                    <button data-type="str">→ str</button>
+                                    <button data-type="float">→ float</button>
+                                    <button data-type="list">→ list</button>
+                                    <button data-type="set">→ set</button>
+                                    <button data-type="dict">→ dict</button>
+                                    <button data-type="tuple">→ tuple</button>
+                                    <button data-type="bool">→ bool</button>
+                                </div>
+                            </div>
+                            <button class="small-btn" id="refreshVarsBtn">↻</button>
+                        </div>
                     </div>
                     <div id="variablesPanel" class="variables-panel">
                         <div class="empty-state">No variables</div>
-                    </div>
-                </div>
-
-                <!-- Complexity Column -->
-                <div class="panel-column complexity-column">
-                    <div class="section-header">
-                        <span>⚡ Complexity</span>
-                    </div>
-                    <div id="complexityPanel" class="complexity-panel">
-                        <div class="empty-state">Type to analyze</div>
                     </div>
                 </div>
 
