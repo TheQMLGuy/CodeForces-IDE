@@ -24,6 +24,9 @@
 
     <link rel="stylesheet" href="style.css">
 
+    <!-- Mermaid for Tree/Graph Visualization -->
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+
     <!-- Google Identity Services (for Google Sign-In) -->
     <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
@@ -177,23 +180,7 @@ print(sum(arr))
                 <div class="panel-column variables-column">
                     <div class="section-header">
                         <span>🔧 Variables</span>
-                        <div class="var-actions">
-                            <div class="convert-dropdown" id="convertDropdown">
-                                <button class="small-btn convert-btn" id="convertBtn"
-                                    title="Convert datatype">🔄</button>
-                                <div class="convert-menu hidden" id="convertMenu">
-                                    <button data-type="int">→ int</button>
-                                    <button data-type="str">→ str</button>
-                                    <button data-type="float">→ float</button>
-                                    <button data-type="list">→ list</button>
-                                    <button data-type="set">→ set</button>
-                                    <button data-type="dict">→ dict</button>
-                                    <button data-type="tuple">→ tuple</button>
-                                    <button data-type="bool">→ bool</button>
-                                </div>
-                            </div>
-                            <button class="small-btn" id="refreshVarsBtn">↻</button>
-                        </div>
+                        <button class="small-btn" id="refreshVarsBtn" title="Refresh">↻</button>
                     </div>
                     <div id="variablesPanel" class="variables-panel">
                         <div class="empty-state">No variables</div>
