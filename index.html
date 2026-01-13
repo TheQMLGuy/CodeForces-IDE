@@ -147,7 +147,10 @@ print(sum(arr))
                     <div class="io-box">
                         <div class="section-header">
                             <span>📥 Input</span>
-                            <button class="small-btn" id="clearInputBtn">Clear</button>
+                            <div class="header-actions">
+                                <button class="small-btn primary" id="runInputBtn" title="Run Code">▶ Run</button>
+                                <button class="small-btn" id="clearInputBtn" title="Clear">🗑</button>
+                            </div>
                         </div>
                         <textarea id="inputArea" class="io-textarea" placeholder="Paste input...">5
 1 2 3 4 5</textarea>
@@ -201,25 +204,13 @@ print(sum(arr))
                 <div class="panel-column visualizer-column">
                     <div class="section-header">
                         <span>📊 Iterations</span>
-                        <button class="small-btn" id="clearVisualizerBtn" title="Clear">🗑</button>
+                        <div class="header-actions">
+                            <button class="small-btn" id="toggleVizFullscreenBtn" title="Toggle Fullscreen">⛶</button>
+                            <button class="small-btn" id="clearVisualizerBtn" title="Clear">🗑</button>
+                        </div>
                     </div>
                     <div id="visualizerPanel" class="visualizer-panel">
                         <div class="empty-state">No loops/recursion detected</div>
-                    </div>
-                </div>
-
-                <!-- Test Cases Column -->
-                <div class="panel-column testcases-column">
-                    <div class="section-header">
-                        <span>📋 Tests</span>
-                        <button class="small-btn" id="addTestCaseBtn">+</button>
-                    </div>
-                    <div id="testCasesPanel" class="testcases-panel">
-                        <!-- Test cases will be populated here -->
-                    </div>
-                    <div class="testcase-actions">
-                        <button class="action-btn primary" id="runAllTestsBtn">▶ Run</button>
-                        <button class="action-btn" id="stressTestBtn">🎲</button>
                     </div>
                 </div>
             </div>

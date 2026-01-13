@@ -11,6 +11,7 @@ let pyodide = null;
 let isRunning = false;
 let variableValues = {};
 let variableTypes = {}; // Store runtime types
+let variableHistories = {}; // Store full history for hover
 let inputCounters = { int: 1, list: 1, str: 1, matrix: 1 };
 let timerSeconds = 0;
 let timerInterval = null;
@@ -528,6 +529,12 @@ function setupEventListeners() {
     elements.clearInputBtn.addEventListener('click', () => {
         elements.inputArea.value = '';
     });
+
+    // Run Input
+    const runBtn = document.getElementById('runInputBtn');
+    if (runBtn) {
+        runBtn.addEventListener('click', runCode);
+    }
 
     // Refresh variables
     elements.refreshVarsBtn.addEventListener('click', updateVariables);
@@ -1176,8 +1183,21 @@ async function updateVariables() {
             const values = data.values || [];
             if (values.length > 0) {
                 const lastValue = values[values.length - 1];
+                const condName = data.source || name;
+
+                // Condition History
+                if (values.length > 1) {
+                    const uniqueVals = [];
+                    for (let i = 0; i < values.length; i++) {
+                        if (i === 0 || values[i] !== values[i - 1]) uniqueVals.push(values[i]);
+                    }
+                    if (uniqueVals.length > 1) {
+                        variableHistories[condName] = uniqueVals.join(' → ');
+                    }
+                }
+
                 groups['condition'].push({
-                    name: data.source || name,
+                    name: condName,
                     type: 'boolean',
                     category: 'condition',
                     value: lastValue
@@ -1215,8 +1235,18 @@ async function updateVariables() {
             const type = variableTypes[v.name] || v.type;
 
             // Value display - using span for compact flex layout
+            let valueContent = value !== undefined ? escapeHtml(String(value)) : '';
+            let valueClass = 'var-value';
+
+            if (variableHistories[v.name]) {
+                const full = escapeHtml(variableHistories[v.name]);
+                const short = valueContent;
+                valueContent = `<span class="history-short">${short}</span><span class="history-full" style="display:none;">${full}</span>`;
+                valueClass += ' var-history';
+            }
+
             const valueDisplay = value !== undefined ?
-                `<span class="var-value" title="${escapeHtml(String(value))}">${escapeHtml(String(value))}</span>` :
+                `<span class="${valueClass}" title="${escapeHtml(String(value))}">${valueContent}</span>` :
                 '<span class="var-value"></span>';
 
             // Compact action buttons - only for regular variables
@@ -1302,6 +1332,7 @@ async function fetchVariableValues() {
     const code = editor.getValue();
     const vars = parseVariables(code);
     variableValues = {};
+    variableHistories = {}; // Full history for hover
 
     for (const v of vars) {
         try {
@@ -1330,10 +1361,12 @@ except:
                     }
 
                     if (uniqueHist.length > 1) {
-                        if (uniqueHist.length <= 5) {
-                            variableValues[v.name] = uniqueHist.join(' → ');
-                        } else {
+                        if (uniqueHist.length > 2) {
+                            variableHistories[v.name] = uniqueHist.join(' → ');
                             variableValues[v.name] = `${uniqueHist[0]} → ... → ${uniqueHist[uniqueHist.length - 1]}`;
+                        } else {
+                            variableValues[v.name] = uniqueHist.join(' → ');
+                            // No entry in variableHistories needed for only 2 items
                         }
                     }
                 }
@@ -3261,6 +3294,7 @@ function executeMovementRule(rule, cmd) {
 // ============================================
 // Auto-Run All Tests on Enter
 // ============================================
+// ============================================
 function initAutoRunAllTests() {
     if (!editor) return;
 
@@ -3270,7 +3304,7 @@ function initAutoRunAllTests() {
             if (cursor.line > 0) {
                 const prevLine = cm.getLine(cursor.line - 1);
                 if (prevLine && prevLine.trim().startsWith('print(')) {
-                    // Run all test cases automatically
+                    // Run automatically
                     runAllTestCases();
                 }
             }
@@ -3279,10 +3313,10 @@ function initAutoRunAllTests() {
 }
 
 function runAllTestCases() {
-    // Trigger the "Run All Tests" button
-    const runAllBtn = document.getElementById('runAllTestsBtn');
-    if (runAllBtn) {
-        runAllBtn.click();
+    // Trigger the "Run" button (integrated in Input box now)
+    const runBtn = document.getElementById('runInputBtn');
+    if (runBtn) {
+        runBtn.click();
     }
 }
 
@@ -3295,6 +3329,16 @@ function initIterationVisualizer() {
     const clearBtn = document.getElementById('clearVisualizerBtn');
     if (clearBtn) {
         clearBtn.addEventListener('click', clearIterations);
+    }
+
+    // Fullscreen Toggle
+    const toggleBtn = document.getElementById('toggleVizFullscreenBtn');
+    if (toggleBtn) {
+        toggleBtn.addEventListener('click', () => {
+            const col = document.querySelector('.visualizer-column');
+            col.classList.toggle('fullscreen');
+            toggleBtn.innerHTML = col.classList.contains('fullscreen') ? '✖' : '⛶';
+        });
     }
 }
 
@@ -3326,12 +3370,35 @@ _track_data = {
     'history': {}
 }
 
+# Helper to represent objects cleanly (e.g. Node(5))
+def _smart_repr(obj):
+    # Check for Node-like objects (val, value, key, data)
+    # Generic object check
+    if hasattr(obj, '__dict__'):
+        # Prefer specific fields
+        for field in ['val', 'value', 'key', 'data', 'id']:
+            if hasattr(obj, field):
+                try:
+                    return f"{type(obj).__name__}({getattr(obj, field)})"
+                except:
+                    pass
+        # Fallback to simple class name if no obvious field
+        return f"{type(obj).__name__}(...)"
+    
+    # Check for List of objects
+    if isinstance(obj, list):
+         # If list contains custom objects, try to repr them cleanly
+         if obj and hasattr(obj[0], '__dict__'):
+             return f"[{', '.join(_smart_repr(x) for x in obj)}]"
+             
+    return str(obj)
+
 def _track_recursion_enter(func_name, args_dict):
     call_id = len(_track_data['recursion']) + 1
     entry = {
         'id': call_id,
         'func': func_name,
-        'args': {k: str(v) for k, v in args_dict.items() if not k.startswith('_')},
+        'args': {k: _smart_repr(v) for k, v in args_dict.items() if not k.startswith('_')},
         'parent': _track_data['call_stack'][-1] if _track_data['call_stack'] else None,
         'children': [],
         'return': None
@@ -3344,10 +3411,10 @@ def _track_recursion_exit(call_id, ret_val):
     if _track_data['call_stack'] and _track_data['call_stack'][-1] == call_id:
         _track_data['call_stack'].pop()
     
-    # Update return value in the flat list (referenced by id-1 index usually, but let's find it)
+    # Update return value
     for r in _track_data['recursion']:
         if r['id'] == call_id:
-            r['return'] = str(ret_val)
+            r['return'] = _smart_repr(ret_val)
             break
     return ret_val
 
@@ -3429,6 +3496,11 @@ class Instrumenter(ast.NodeTransformer):
         self.cond_count = 0
 
     def visit_FunctionDef(self, node):
+        # Skip __init__ to avoid noise
+        if node.name == "__init__":
+            self.generic_visit(node)
+            return node
+
         # Instrument function entry
         func_name = node.name
         
@@ -3716,7 +3788,7 @@ function renderIterations() {
                         <span class="iteration-name">${headerTitle}</span>
                         <span style="font-size: 9px; color: var(--text-muted);">${rows.length} iter</span>
                     </div>
-                    <div style="overflow-x: auto;">
+                    <div class="iteration-table-container" style="overflow-x: auto;">
                         <table class="iteration-table">
                             <thead><tr>${headers}</tr></thead>
                             <tbody>${tableRows}</tbody>
@@ -3729,16 +3801,14 @@ function renderIterations() {
 
 
 
-    // Render Recursion Tree
+    // Render Recursion Trace Table
     if (iterationData.recursion && iterationData.recursion.length > 0) {
-        // Build Tree structure from flat list
+        // Build Tree structure to understand call relationships
         const roots = [];
         const map = {};
-
         iterationData.recursion.forEach(node => {
             map[node.id] = { ...node, children: [] };
         });
-
         iterationData.recursion.forEach(node => {
             if (node.parent && map[node.parent]) {
                 map[node.parent].children.push(map[node.id]);
@@ -3747,6 +3817,87 @@ function renderIterations() {
             }
         });
 
+        // Trace Events Chronologically
+        const events = [];
+        const traverse = (node) => {
+            // Enter Event
+            events.push({ type: 'enter', node });
+
+            // Process Children
+            if (node.children) {
+                node.children.forEach(child => traverse(child));
+            }
+
+            // Exit Event
+            events.push({ type: 'exit', node });
+        };
+        roots.forEach(traverse);
+
+        // Generate Table Rows
+        const traceRows = events.map(event => {
+            const isEnter = event.type === 'enter';
+            const node = event.node;
+            const argsStr = Object.values(node.args || {}).join(', ');
+            const funcStr = `<span class="var-name">${escapeHtml(node.func)}(${escapeHtml(argsStr)})</span>`;
+
+            let valueStr = '<span style="color:var(--text-muted)">-</span>';
+            let actionStr = '';
+
+            if (isEnter) {
+                // Action: Calling first child? or just started?
+                if (node.children && node.children.length > 0) {
+                    const nextChild = node.children[0];
+                    actionStr = `→ Calling <b>${escapeHtml(nextChild.func)}</b>`;
+                } else {
+                    actionStr = `<span style="color:var(--text-muted)">Processing...</span>`;
+                }
+            } else {
+                // Exit
+                const retVal = node.return !== 'None' && node.return !== undefined ? node.return : '-';
+                valueStr = `<span style="color:var(--accent-success); font-weight:bold;">${escapeHtml(String(retVal))}</span>`;
+
+                if (node.parent && map[node.parent]) {
+                    const parser = map[node.parent];
+                    actionStr = `← Returning to <b>${escapeHtml(parser.func)}</b>`;
+                } else {
+                    actionStr = `<span style="color:var(--text-muted)">Done</span>`;
+                }
+            }
+
+            return `
+                <tr>
+                    <td>${funcStr} ${isEnter ? '⤵' : '⤴'}</td>
+                    <td>${valueStr}</td>
+                    <td style="font-size:10px; color:var(--text-secondary);">${actionStr}</td>
+                </tr>
+            `;
+        }).join('');
+
+        // 1. Trace HTML (Table)
+        const recursionHtml = `
+            <div class="iteration-card">
+                <div class="iteration-header">
+                     <span class="iteration-name">🥞 Recursion Trace</span>
+                     <span style="font-size: 9px; color: var(--text-muted);">${events.length} steps</span>
+                </div>
+                <div class="iteration-table-container" style="overflow-x: auto;">
+                    <table class="iteration-table">
+                        <thead>
+                            <tr>
+                                <th>Current Call</th>
+                                <th>Value</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${traceRows}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+
+        // 2. Tree HTML (Visual Hierarchy)
         const renderNode = (node, depth = 0) => {
             const argsStr = Object.entries(node.args || {}).map(([k, v]) => `${k}=${v}`).join(', ');
             const returnStr = node.return !== 'None' ? ` → ${node.return}` : '';
@@ -3772,18 +3923,23 @@ function renderIterations() {
             `;
         };
 
+        let treeHtml = '';
         if (roots.length > 0) {
-            html = `
+            treeHtml = `
                 <div class="iteration-card">
                     <div class="iteration-header">
                          <span class="iteration-name">🌳 Recursion Tree</span>
                     </div>
-                    <div style="padding: 8px; overflow-x: auto;">
+                    <!-- Reuse iteration-table-container class for Expand-on-Hover -->
+                    <div class="iteration-table-container" style="padding: 8px; overflow-x: auto;">
                         ${roots.map(root => renderNode(root)).join('')}
                     </div>
                 </div>
-            ` + html;
+            `;
         }
+
+        // Combine: Tree first, then Table
+        html = treeHtml + recursionHtml + html;
     }
 
 
@@ -3862,8 +4018,8 @@ async function captureIterations(code) {
 document.addEventListener('DOMContentLoaded', () => {
     init();
     initTheme();
-    initTabs();
-    initTestCases();
+    // initTabs - Removed (Combined layout)
+    // initTestCases - Removed (Integrated in IO)
     setupNewFeatureListeners();
     loadAutocompleteData();
     initConvertDropdown();
