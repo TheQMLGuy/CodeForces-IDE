@@ -6,7 +6,7 @@
 // ============================================
 // Configuration - REPLACE WITH YOUR CREDENTIALS
 // ============================================
-const GOOGLE_CLIENT_ID = 'YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com';
+const GOOGLE_CLIENT_ID = '148768879081-7g177kb6knc45efo27q9vkcpoprb6k31.apps.googleusercontent.com';
 
 // ============================================
 // Auth State
