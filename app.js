@@ -141,9 +141,7 @@ let currentTheme = 'dark';
 async function init() {
     try {
         // Show App IMMEDIATELY (Non-blocking)
-        // Ensure we get the element even if it wasn't available at script load
-        const appEl = elements.app || document.getElementById('app');
-        if (appEl) appEl.classList.remove('hidden');
+        if (elements.app) elements.app.classList.remove('hidden');
 
         // Initialize CodeMirror
         initEditor();
@@ -1184,116 +1182,120 @@ async function updateVariables() {
     const code = editor.getValue();
     const vars = parseVariables(code);
 
-    // Scoped Variable Grouping
-    // We prioritize iterationData.scopes
-    const scopes = iterationData.scopes || {};
+    // Grouping Logic
+    const groups = {
+        'input': [],
+        'loop': [],
+        'computation': [],
+        'inline': [],
+        'function': [],
+        'condition': []  // New group
+    };
 
-    // Always include Global if something is in simplified vars but not in scopes dict
-    if (!scopes['Global']) scopes['Global'] = {};
+    vars.forEach(v => {
+        // Skip __init__ - it's noise in the variable panel
+        if (v.name === '__init__') return;
 
-    // Merge globals?
-    // If no scopes recorded (e.g. no assignments), fallback to collectedVars
-    // But we want to enforce the new view.
+        if (groups[v.category]) {
+            groups[v.category].push(v);
+        } else {
+            groups['computation'].push(v); // Default
+        }
+    });
+
+    // Add Conditions from iterationData
+    if (iterationData && iterationData.conditions) {
+        Object.entries(iterationData.conditions).forEach(([name, data]) => {
+            const values = data.values || [];
+            if (values.length > 0) {
+                const lastValue = values[values.length - 1];
+                const condName = data.source || name;
+
+                // Condition History - Dedupe consecutive values
+                const uniqueVals = [];
+                for (let i = 0; i < values.length; i++) {
+                    if (i === 0 || values[i] !== values[i - 1]) uniqueVals.push(values[i]);
+                }
+
+                // Generate display value (truncated if needed)
+                let displayValue = lastValue;
+                if (uniqueVals.length > 2) {
+                    // Show: first -> ... -> last for default, full on hover
+                    displayValue = `${uniqueVals[0]} → ... → ${uniqueVals[uniqueVals.length - 1]}`;
+                    variableHistories[condName] = uniqueVals.join(' → ');
+                } else if (uniqueVals.length === 2) {
+                    displayValue = uniqueVals.join(' → ');
+                }
+
+                groups['condition'].push({
+                    name: condName,
+                    type: 'boolean',
+                    category: 'condition',
+                    value: displayValue
+                });
+            }
+        });
+    }
+
+    if (Object.values(groups).every(g => g.length === 0)) {
+        elements.variablesPanel.innerHTML = '<div class="empty-state">No variables detected</div>';
+        return;
+    }
 
     let html = '';
+    const groupTitles = {
+        'input': 'Input Variables',
+        'loop': 'Loop State',
+        'computation': 'Computation Results',
+        'inline': 'Inline / Temp',
+        'function': 'Functions',
+        'condition': 'Conditions' // Title
+    };
 
-    const sortedScopes = Object.keys(scopes).sort((a, b) => {
-        if (a === 'Global') return -1;
-        if (b === 'Global') return 1;
-        return a.localeCompare(b);
-    });
+    const renderGroup = (category, varsList) => {
+        if (varsList.length === 0) return '';
 
-    for (const scopeName of sortedScopes) {
-        const varsObj = scopes[scopeName] || {};
-        const varsList = Object.entries(varsObj).map(([k, v]) => ({ name: k, value: v, type: 'variable' }));
-        if (varsList.length === 0) continue;
-
-        html += `
-            <div class="var-scope-group">
-                <div class="var-scope-title">${escapeHtml(scopeName)}</div>
-                <div class="var-scope-list">
-                    ${renderGroup(scopeName, varsList)}
-                </div>
-            </div>
-        `;
-    }
-
-    // Fallback if empty (e.g. only prints)
-    if (html === '') {
-        // Try standard logic
-    }
-
-    elements.variablesPanel.innerHTML = html || '<div class="empty-state">No variables tracked</div>';
-}
-const groupTitles = {
-    'input': 'Input Variables',
-    'loop': 'Loop State',
-    'computation': 'Computation Results',
-    'inline': 'Inline / Temp',
-    'function': 'Functions',
-    'condition': 'Conditions' // Title
-};
-
-const renderGroup = (category, varsList) => {
-    if (varsList.length === 0) return '';
-
-    const listHtml = varsList.map(v => {
-        // Priority: v.value (for conditions) -> variableValues lookup -> undefined
-        let value = v.value;
-        if (value === undefined) {
-            value = variableValues[v.name];
-        }
-
-        // Use runtime type if available, else regex guess
-        const type = variableTypes[v.name] || v.type;
-
-        // Value display - using span for compact flex layout
-        let valueContent = value !== undefined ? escapeHtml(String(value)) : '';
-        let valueClass = 'var-value';
-
-        if (variableHistories[v.name]) {
-            const hist = variableHistories[v.name];
-            let full = '';
-
-            // History Handling (Structure vs Scalar)
-            if (hist.some(h => typeof h === 'object' && h !== null)) {
-                // Structure History
-                full = '<div style="font-weight:600; margin-bottom:4px; border-bottom:1px solid #444;">History</div>';
-                full += hist.map((h, i) => {
-                    const val = (typeof h === 'object' && h.val !== undefined) ? `Node=${h.val}` : String(h);
-                    return `<div style="font-size:10px; margin-top:2px; opacity:0.8;">${i}: ${escapeHtml(val)}</div>`;
-                }).join('');
-            } else {
-                // Scalar History
-                full = '<div style="font-weight:600; margin-bottom:4px; border-bottom:1px solid #444;">Values</div>';
-                full += hist.map((h, i) => `<div style="font-size:10px; margin-top:2px;">${i}: ${escapeHtml(String(h))}</div>`).join('');
+        const listHtml = varsList.map(v => {
+            // Priority: v.value (for conditions) -> variableValues lookup -> undefined
+            let value = v.value;
+            if (value === undefined) {
+                value = variableValues[v.name];
             }
 
-            const short = valueContent;
-            valueContent = `<span class="history-short">${short}</span><span class="history-full" style="display:none;">${full}</span>`;
-            valueClass += ' var-history';
-        }
+            // Use runtime type if available, else regex guess
+            const type = variableTypes[v.name] || v.type;
 
-        const valueDisplay = value !== undefined ?
-            `<span class="${valueClass}" title="${escapeHtml(String(value))}">${valueContent}</span>` :
-            '<span class="var-value"></span>';
+            // Value display - using span for compact flex layout
+            let valueContent = value !== undefined ? escapeHtml(String(value)) : '';
+            let valueClass = 'var-value';
 
-        // Compact action buttons - only for regular variables
-        let actionButtons = '';
-        if (v.type !== 'loop' && v.type !== 'function') {
-            actionButtons = `<button class="var-action" onclick="insertCode('print(${v.name})')" title="Print">📋</button>`;
-
-            if (['list', 'str', 'dict'].includes(v.type)) {
-                actionButtons += `<button class="var-action" onclick="insertCode('print(len(${v.name}))')" title="Len">📏</button>`;
+            if (variableHistories[v.name]) {
+                const full = escapeHtml(variableHistories[v.name]);
+                const short = valueContent;
+                valueContent = `<span class="history-short">${short}</span><span class="history-full" style="display:none;">${full}</span>`;
+                valueClass += ' var-history';
             }
 
-            if (v.type === 'list') {
-                actionButtons += `<button class="var-action" onclick="insertCode('${v.name}_sum = sum(${v.name})\\\\nprint(${v.name}_sum)')" title="Sum">∑</button>`;
-                actionButtons += `<button class="var-action" onclick="insertCode('for item in ${v.name}:\\\\n    print(item)')" title="Loop">⟳</button>`;
-            }
+            const valueDisplay = value !== undefined ?
+                `<span class="${valueClass}" title="${escapeHtml(String(value))}">${valueContent}</span>` :
+                '<span class="var-value"></span>';
 
-            // Per-variable Convert Dropdown (→ icon)
-            actionButtons += `
+            // Compact action buttons - only for regular variables
+            let actionButtons = '';
+            if (v.type !== 'loop' && v.type !== 'function') {
+                actionButtons = `<button class="var-action" onclick="insertCode('print(${v.name})')" title="Print">📋</button>`;
+
+                if (['list', 'str', 'dict'].includes(v.type)) {
+                    actionButtons += `<button class="var-action" onclick="insertCode('print(len(${v.name}))')" title="Len">📏</button>`;
+                }
+
+                if (v.type === 'list') {
+                    actionButtons += `<button class="var-action" onclick="insertCode('${v.name}_sum = sum(${v.name})\\\\nprint(${v.name}_sum)')" title="Sum">∑</button>`;
+                    actionButtons += `<button class="var-action" onclick="insertCode('for item in ${v.name}:\\\\n    print(item)')" title="Loop">⟳</button>`;
+                }
+
+                // Per-variable Convert Dropdown (→ icon)
+                actionButtons += `
                     <div class="var-dropdown">
                         <button class="var-action" title="Convert Type">→</button>
                         <div class="var-dropdown-menu convert-menu">
@@ -1305,9 +1307,9 @@ const renderGroup = (category, varsList) => {
                         </div>
                     </div>`;
 
-            // Operator dropdown for numeric types (+, -, *, /, %)
-            if (['int', 'float'].includes(v.type)) {
-                actionButtons += `
+                // Operator dropdown for numeric types (+, -, *, /, %)
+                if (['int', 'float'].includes(v.type)) {
+                    actionButtons += `
                         <div class="var-dropdown">
                             <button class="var-action" title="Math Operations">±</button>
                             <div class="var-dropdown-menu operator-menu">
@@ -1318,21 +1320,21 @@ const renderGroup = (category, varsList) => {
                                 <button onclick="promptOperator('${v.name}', '%')">% Mod</button>
                             </div>
                         </div>`;
+                }
             }
-        }
 
-        // Special display for loop variables
-        let extraInfo = '';
-        if (v.type === 'loop' && v.loopInfo) {
-            extraInfo = `<div class="loop-info">${v.loopInfo.start}→${v.loopInfo.end}:${v.loopInfo.step}</div>`;
-        }
+            // Special display for loop variables
+            let extraInfo = '';
+            if (v.type === 'loop' && v.loopInfo) {
+                extraInfo = `<div class="loop-info">${v.loopInfo.start}→${v.loopInfo.end}:${v.loopInfo.step}</div>`;
+            }
 
-        // Special display for functions
-        if (v.type === 'function') {
-            extraInfo = `<div class="func-return">→ ${escapeHtml(v.returnValue || 'None')}</div>`;
-        }
+            // Special display for functions
+            if (v.type === 'function') {
+                extraInfo = `<div class="func-return">→ ${escapeHtml(v.returnValue || 'None')}</div>`;
+            }
 
-        return `
+            return `
             <div class="var-item ${v.type === 'loop' ? 'var-loop' : ''} ${v.type === 'function' ? 'var-function' : ''}"
                  onmouseenter="highlightVariable('${v.name}')" onmouseleave="clearHighlights()">
                 <div class="var-header">
@@ -1346,206 +1348,21 @@ const renderGroup = (category, varsList) => {
                 </div>
                 ${v.type === 'loop' || v.type === 'function' ? extraInfo : valueDisplay}
                 ${(() => {
-                if (typeof renderDataStructure !== 'undefined' && typeof detectDataStructureType !== 'undefined') {
-                    if (v.type !== 'loop' && v.type !== 'function') {
-                        const dsType = detectDataStructureType(v.name, value);
-                        if (dsType && value !== undefined) {
-                            return renderDataStructure(v.name, String(value), dsType);
+                    if (typeof renderDataStructure !== 'undefined' && typeof detectDataStructureType !== 'undefined') {
+                        if (v.type !== 'loop' && v.type !== 'function') {
+                            const dsType = detectDataStructureType(v.name, value);
+                            if (dsType && value !== undefined) {
+                                return renderDataStructure(v.name, String(value), dsType);
+                            }
                         }
                     }
-                }
-                return '';
-            })()}
+                    return '';
+                })()}
             </div>
         `;
-    }).join('');
-
-    return `
-            <div class="var-group">
-                <div class="var-group-title" style="font-size: 10px; font-weight: bold; text-transform: uppercase; color: var(--text-muted); margin-bottom: 4px; margin-top: 8px;">
-                    ${groupTitles[category]}
-                </div>
-                ${listHtml}
-            </div>
-        `;
-};
-
-// Add Conditions from iterationData
-if (iterationData && iterationData.conditions) {
-    Object.entries(iterationData.conditions).forEach(([name, data]) => {
-        const values = data.values || [];
-        if (values.length > 0) {
-            const lastValue = values[values.length - 1];
-            const condName = data.source || name;
-
-            // Condition History - Dedupe consecutive values
-            const uniqueVals = [];
-            for (let i = 0; i < values.length; i++) {
-                if (i === 0 || values[i] !== values[i - 1]) uniqueVals.push(values[i]);
-            }
-
-            // Generate display value (truncated if needed)
-            let displayValue = lastValue;
-            if (uniqueVals.length > 2) {
-                // Show: first -> ... -> last for default, full on hover
-                displayValue = `${uniqueVals[0]} → ... → ${uniqueVals[uniqueVals.length - 1]}`;
-                variableHistories[condName] = uniqueVals.join(' → ');
-            } else if (uniqueVals.length === 2) {
-                displayValue = uniqueVals.join(' → ');
-            }
-
-            groups['condition'].push({
-                name: condName,
-                type: 'boolean',
-                category: 'condition',
-                value: displayValue
-            });
-        }
-    });
-}
-
-if (Object.values(groups).every(g => g.length === 0)) {
-    elements.variablesPanel.innerHTML = '<div class="empty-state">No variables detected</div>';
-    return;
-}
-
-let html = '';
-const groupTitles = {
-    'input': 'Input Variables',
-    'loop': 'Loop State',
-    'computation': 'Computation Results',
-    'inline': 'Inline / Temp',
-    'function': 'Functions',
-    'condition': 'Conditions' // Title
-};
-
-const renderGroup = (category, varsList) => {
-    if (varsList.length === 0) return '';
-
-    const listHtml = varsList.map(v => {
-        // Priority: v.value (for conditions) -> variableValues lookup -> undefined
-        let value = v.value;
-        if (value === undefined) {
-            value = variableValues[v.name];
-        }
-
-        // Use runtime type if available, else regex guess
-        const type = variableTypes[v.name] || v.type;
-
-        // Value display - using span for compact flex layout
-        let valueContent = value !== undefined ? escapeHtml(String(value)) : '';
-        let valueClass = 'var-value';
-
-        if (variableHistories[v.name]) {
-            const hist = variableHistories[v.name];
-            let full = '';
-
-            // History Handling (Structure vs Scalar)
-            if (hist.some(h => typeof h === 'object' && h !== null)) {
-                // Structure History
-                full = '<div style="font-weight:600; margin-bottom:4px; border-bottom:1px solid #444;">History</div>';
-                full += hist.map((h, i) => {
-                    const val = (typeof h === 'object' && h.val !== undefined) ? `Node=${h.val}` : String(h);
-                    return `<div style="font-size:10px; margin-top:2px; opacity:0.8;">${i}: ${escapeHtml(val)}</div>`;
-                }).join('');
-            } else {
-                // Scalar History
-                full = '<div style="font-weight:600; margin-bottom:4px; border-bottom:1px solid #444;">Values</div>';
-                full += hist.map((h, i) => `<div style="font-size:10px; margin-top:2px;">${i}: ${escapeHtml(String(h))}</div>`).join('');
-            }
-
-            const short = valueContent;
-            valueContent = `<span class="history-short">${short}</span><span class="history-full" style="display:none;">${full}</span>`;
-            valueClass += ' var-history';
-        }
-
-        const valueDisplay = value !== undefined ?
-            `<span class="${valueClass}" title="${escapeHtml(String(value))}">${valueContent}</span>` :
-            '<span class="var-value"></span>';
-
-        // Compact action buttons - only for regular variables
-        let actionButtons = '';
-        if (v.type !== 'loop' && v.type !== 'function') {
-            actionButtons = `<button class="var-action" onclick="insertCode('print(${v.name})')" title="Print">📋</button>`;
-
-            if (['list', 'str', 'dict'].includes(v.type)) {
-                actionButtons += `<button class="var-action" onclick="insertCode('print(len(${v.name}))')" title="Len">📏</button>`;
-            }
-
-            if (v.type === 'list') {
-                actionButtons += `<button class="var-action" onclick="insertCode('${v.name}_sum = sum(${v.name})\\\\nprint(${v.name}_sum)')" title="Sum">∑</button>`;
-                actionButtons += `<button class="var-action" onclick="insertCode('for item in ${v.name}:\\\\n    print(item)')" title="Loop">⟳</button>`;
-            }
-
-            // Per-variable Convert Dropdown (→ icon)
-            actionButtons += `
-                    <div class="var-dropdown">
-                        <button class="var-action" title="Convert Type">→</button>
-                        <div class="var-dropdown-menu convert-menu">
-                            <button onclick="insertCode('${v.name} = int(${v.name})')">int</button>
-                            <button onclick="insertCode('${v.name} = str(${v.name})')">str</button>
-                            <button onclick="insertCode('${v.name} = float(${v.name})')">float</button>
-                            <button onclick="insertCode('${v.name} = list(${v.name})')">list</button>
-                            <button onclick="insertCode('${v.name} = set(${v.name})')">set</button>
-                        </div>
-                    </div>`;
-
-            // Operator dropdown for numeric types (+, -, *, /, %)
-            if (['int', 'float'].includes(v.type)) {
-                actionButtons += `
-                        <div class="var-dropdown">
-                            <button class="var-action" title="Math Operations">±</button>
-                            <div class="var-dropdown-menu operator-menu">
-                                <button onclick="promptOperator('${v.name}', '+')">+ Add</button>
-                                <button onclick="promptOperator('${v.name}', '-')">− Sub</button>
-                                <button onclick="promptOperator('${v.name}', '*')">× Mul</button>
-                                <button onclick="promptOperator('${v.name}', '/')">÷ Div</button>
-                                <button onclick="promptOperator('${v.name}', '%')">% Mod</button>
-                            </div>
-                        </div>`;
-            }
-        }
-
-        // Special display for loop variables
-        let extraInfo = '';
-        if (v.type === 'loop' && v.loopInfo) {
-            extraInfo = `<div class="loop-info">${v.loopInfo.start}→${v.loopInfo.end}:${v.loopInfo.step}</div>`;
-        }
-
-        // Special display for functions
-        if (v.type === 'function') {
-            extraInfo = `<div class="func-return">→ ${escapeHtml(v.returnValue || 'None')}</div>`;
-        }
+        }).join('');
 
         return `
-            <div class="var-item ${v.type === 'loop' ? 'var-loop' : ''} ${v.type === 'function' ? 'var-function' : ''}"
-                 onmouseenter="highlightVariable('${v.name}')" onmouseleave="clearHighlights()">
-                <div class="var-header">
-                    <div class="var-icon">${getTypeIcon(v.type)}</div>
-                    <span class="var-name" title="${v.name}">${v.name}</span>
-                    <div class="var-actions">
-                        ${actionButtons}
-                    </div>
-                    <span class="var-spacer"></span>
-                    <span class="var-type">${v.type}</span>
-                </div>
-                ${v.type === 'loop' || v.type === 'function' ? extraInfo : valueDisplay}
-                ${(() => {
-                if (typeof renderDataStructure !== 'undefined' && typeof detectDataStructureType !== 'undefined') {
-                    if (v.type !== 'loop' && v.type !== 'function') {
-                        const dsType = detectDataStructureType(v.name, value);
-                        if (dsType && value !== undefined) {
-                            return renderDataStructure(v.name, String(value), dsType);
-                        }
-                    }
-                }
-                return '';
-            })()}
-            </div>
-        `;
-    }).join('');
-
-    return `
             <div class="var-group">
                 <div class="var-group-title" style="font-size: 10px; font-weight: bold; text-transform: uppercase; color: var(--text-muted); margin-bottom: 4px; margin-top: 8px;">
                     ${groupTitles[category]}
@@ -1553,23 +1370,23 @@ const renderGroup = (category, varsList) => {
                 ${listHtml}
             </div>
         `;
-};
+    };
 
-html += renderGroup('input', groups['input']);
-html += renderGroup('loop', groups['loop']);
-html += renderGroup('computation', groups['computation']);
-html += renderGroup('function', groups['function']);
-html += renderGroup('inline', groups['inline']);
-html += renderGroup('condition', groups['condition']);
+    html += renderGroup('input', groups['input']);
+    html += renderGroup('loop', groups['loop']);
+    html += renderGroup('computation', groups['computation']);
+    html += renderGroup('function', groups['function']);
+    html += renderGroup('inline', groups['inline']);
+    html += renderGroup('condition', groups['condition']);
 
-elements.variablesPanel.innerHTML = html;
+    elements.variablesPanel.innerHTML = html;
 
-// Initialize Mermaid for any new diagrams
-if (typeof mermaid !== 'undefined') {
-    try {
-        mermaid.init(undefined, document.querySelectorAll('.variables-panel .mermaid'));
-    } catch (e) { console.debug('Mermaid init error:', e); }
-}
+    // Initialize Mermaid for any new diagrams
+    if (typeof mermaid !== 'undefined') {
+        try {
+            mermaid.init(undefined, document.querySelectorAll('.variables-panel .mermaid'));
+        } catch (e) { console.debug('Mermaid init error:', e); }
+    }
 }
 
 
@@ -1621,28 +1438,7 @@ except:
                 }
             }
         } catch (e) {
-            // Fallback: check history for locals (e.g. inside functions)
-            let found = false;
-            if (iterationData && iterationData.history && iterationData.history[v.name]) {
-                const hist = iterationData.history[v.name];
-                if (hist.length > 0) {
-                    const fallbackVal = hist[hist.length - 1];
-                    variableValues[v.name] = fallbackVal;
-                    found = true;
-
-                    // Simple type inference from string repr
-                    if (fallbackVal === 'True' || fallbackVal === 'False') variableTypes[v.name] = 'bool';
-                    else if (!isNaN(Number(fallbackVal))) {
-                        if (String(fallbackVal).includes('.')) variableTypes[v.name] = 'float';
-                        else variableTypes[v.name] = 'int';
-                    }
-                    else if (String(fallbackVal).startsWith("'") || String(fallbackVal).startsWith('"')) variableTypes[v.name] = 'str';
-                    else if (String(fallbackVal).startsWith('[')) variableTypes[v.name] = 'list';
-                    else variableTypes[v.name] = 'other';
-                }
-            }
-
-            if (!found) variableValues[v.name] = '?';
+            variableValues[v.name] = '?';
         }
     }
 
@@ -3074,7 +2870,7 @@ function detectDataStructureType(name, value) {
     }
 
     // Detect adjacency matrix (2D list with numeric values)
-    if (strVal.startsWith('[[') && /^\[\[[\d,\s\[\]]+\]\]$/.test(strVal.replace(/\s/g, ''))) {
+    if (strVal.startsWith('[[') && /^\[\[[\\d,\s\[\]]+\]\]$/.test(strVal.replace(/\s/g, ''))) {
         return 'matrix';
     }
 
@@ -3722,9 +3518,7 @@ _track_data = {
     'recursion': [],
     'call_stack': [],
     'history': {},
-    'trees': {},
-    'graphs': {},
-    'scopes': {} # New: Scoped variable values
+    'trees': {}
 }
 
 # Helper to traverse and serialize a tree (Node with left/right or children)
@@ -3749,10 +3543,6 @@ def _serialize_tree_node(node, depth=0, max_depth=10):
         result['left'] = _serialize_tree_node(node.left, depth + 1, max_depth)
     if hasattr(node, 'right'):
         result['right'] = _serialize_tree_node(node.right, depth + 1, max_depth)
-    
-    # Check for next (linked list)
-    if hasattr(node, 'next'):
-        result['next'] = _serialize_tree_node(node.next, depth + 1, max_depth)
     
     # Check for generic children list
     if hasattr(node, 'children') and isinstance(node.children, list):
@@ -3815,27 +3605,12 @@ def _track_recursion_exit(call_id, ret_val):
             break
     return ret_val
 
-def _track_assign(name, val, scope='Global'):
-    # 1. Update Scoped Values
-    if scope not in _track_data['scopes']:
-        _track_data['scopes'][scope] = {}
-    _track_data['scopes'][scope][name] = _smart_repr(val)
-
-    # 2. Update History (Global Key for simplicity in UI retrieval)
+def _track_assign(name, val):
     if name not in _track_data['history']:
         _track_data['history'][name] = []
-    
+    # Avoid massive history
     if len(_track_data['history'][name]) < 50:
-        is_struct = False
-        if hasattr(val, '__dict__') or hasattr(val, '__slots__'):
-             if hasattr(val, 'next') or hasattr(val, 'left') or hasattr(val, 'right') or hasattr(val, 'children'):
-                  try:
-                      _track_data['history'][name].append(_serialize_tree_node(val, max_depth=5))
-                      is_struct = True
-                  except:
-                      pass
-        if not is_struct:
-            _track_data['history'][name].append(_smart_repr(val))
+        _track_data['history'][name].append(_smart_repr(val))
     return val
 
 # Helper to capture range info
@@ -3861,73 +3636,57 @@ def _get_range_info(node):
         pass
     return ""
 
-# Helper to convert AST node to string (for loop var names)
-def MakeStr(node):
-    if isinstance(node, ast.Name):
-        return node.id
-    elif isinstance(node, ast.Tuple) or isinstance(node, ast.List):
-        return ', '.join(MakeStr(e) for e in node.elts)
-    return str(node)
-
-# Helper to make range expression string
-def _make_range_expr(node):
-    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == 'range':
-        return f"range({', '.join(ast.unparse(arg) for arg in node.args)})"
-    return ast.unparse(node)
-
-
-def _track_loop_init(name, loop_expr_str, loop_var_name):
+def _track_loop(name, locals_dict, filter_vars, loop_var, range_str, is_init=False):
     if name not in _track_data['loops']:
         _track_data['loops'][name] = {
             'variables': [], 
             'iterations': [], 
-            'loop_var': loop_var_name,
-            'range': loop_expr_str,
-            'prev_values': {}
+            'loop_var': loop_var,
+            'range': range_str
         }
-
-def _track_loop(name, modified_vars, loop_expr_str, loop_var_name):
-    if name not in _track_data['loops']:
-        _track_loop_init(name, loop_expr_str, loop_var_name) # Ensure init if not already
-
+    
     # Filter variables: only loop_var and those modified in the loop
     simple_vars = {}
+    target_vars = [loop_var] + filter_vars
     
-    # Get values for modified_vars and loop_var_name from current locals
-    current_locals = sys._getframe(1).f_locals # Get caller's locals
+    for k in target_vars:
+        if k in locals_dict and isinstance(locals_dict[k], (int, float, str, bool, list)):
+             simple_vars[k] = locals_dict[k]
     
-    for k in modified_vars:
-        if k in current_locals and isinstance(current_locals[k], (int, float, str, bool, list)):
-             simple_vars[k] = current_locals[k]
-    
-    if loop_var_name in current_locals and isinstance(current_locals[loop_var_name], (int, float, str, bool, list)):
-        simple_vars[loop_var_name] = current_locals[loop_var_name]
-
     # Update keys (columns)
-    ordered_columns = [loop_var_name] if loop_var_name else []
-    for v in modified_vars:
+    ordered_columns = [loop_var]
+    for v in filter_vars:
         if v in simple_vars and v not in ordered_columns:
             ordered_columns.append(v)
             
     _track_data['loops'][name]['variables'] = ordered_columns
     
-    # Store expressions with before/after values
-    exprs = {}
-    prev = _track_data['loops'][name]['prev_values']
-    for k, v in simple_vars.items():
-        if k in prev and k != loop_var_name:
-            # Changed value OR numeric (show +0 for numeric)
-            if prev[k] != v or (isinstance(v, (int, float)) and isinstance(prev[k], (int, float))):
-                # Changed value - record expression
-                if isinstance(v, (int, float)) and isinstance(prev[k], (int, float)):
-                    diff = v - prev[k]
-                    sign = '+' if diff >= 0 else ''
-                    exprs[k] = f"{prev[k]}{sign}{diff}={v}"
-                elif prev[k] != v:
-                     # Keep tracking non-numeric changes but no expression string needed if not numeric
-                     pass
     
-    _track_data['loops'][name]['iterations'].append({'values': simple_vars, 'exprs': exprs})
+    if is_init:
+        # Prepend to iterations (Initial state)
+        # Exclude loop_var from init state as it typically has garbage/old value
+        if loop_var in simple_vars:
+            del simple_vars[loop_var]
+        _track_data['loops'][name]['iterations'].insert(0, {'values': simple_vars, 'exprs': {}})
+    else:
+        # Store expressions with before/after values
+        exprs = {}
+        if 'prev_values' in _track_data['loops'][name]:
+            prev = _track_data['loops'][name]['prev_values']
+            for k, v in simple_vars.items():
+                if k in prev and k != loop_var:
+                    # Changed value OR numeric (show +0 for numeric)
+                    if prev[k] != v or (isinstance(v, (int, float)) and isinstance(prev[k], (int, float))):
+                        # Changed value - record expression
+                        if isinstance(v, (int, float)) and isinstance(prev[k], (int, float)):
+                            diff = v - prev[k]
+                            sign = '+' if diff >= 0 else ''
+                            exprs[k] = f"{prev[k]}{sign}{diff}={v}"
+                        elif prev[k] != v:
+                             # Keep tracking non-numeric changes but no expression string needed if not numeric
+                             pass
+        
+        _track_data['loops'][name]['iterations'].append({'values': simple_vars, 'exprs': exprs})
     
     # Store current values for next iteration comparison
     _track_data['loops'][name]['prev_values'] = simple_vars.copy()
@@ -3942,21 +3701,14 @@ class Instrumenter(ast.NodeTransformer):
     def __init__(self):
         self.loop_count = 0
         self.cond_count = 0
-        self.loop_vars_stack = [] 
-        self.scope_stack = ['Global'] # Stack of scope names (Class, Func)
-
-    def _get_scope(self):
-        return '.'.join(self.scope_stack) if self.scope_stack else 'Global'
-
-    def visit_ClassDef(self, node):
-        self.scope_stack.append(node.name)
-        self.generic_visit(node)
-        self.scope_stack.pop()
-        return node
+        self.loop_vars_stack = [] # Track outer loop variables
 
     def visit_FunctionDef(self, node):
-        self.scope_stack.append(node.name)
-        
+        # Skip __init__ to avoid noise
+        if node.name == "__init__":
+            self.generic_visit(node)
+            return node
+
         # Instrument function entry
         func_name = node.name
         
@@ -3975,14 +3727,17 @@ class Instrumenter(ast.NodeTransformer):
             )
         )
         
+        # Insert at start
         node.body.insert(0, enter_call)
         
+        # Instrument Returns
+        # We need to wrap Returns to call exit
         self.generic_visit(node)
-        self.scope_stack.pop()
         
         return node
 
     def visit_Return(self, node):
+        # transform return X -> return _track_recursion_exit(_call_id, X)
         if node.value:
             node.value = ast.Call(
                 func=ast.Name(id='_track_recursion_exit', ctx=ast.Load()),
@@ -3990,78 +3745,79 @@ class Instrumenter(ast.NodeTransformer):
                 keywords=[]
             )
         return node
-        
+
+
     def visit_For(self, node):
         self.loop_count += 1
-        loop_name = f"Loop {self.loop_count}"
+        name = f"loop_{self.loop_count}"
         
-        # Track loop variable (simple assignment)
+        # 1. Identify Loop Variable
+        loop_var = ""
+        if isinstance(node.target, ast.Name):
+            loop_var = node.target.id
+            
+        # 2. Capture Range Info
+        range_str = _get_range_info(node)
+        
+        # 3. Identify Modified Variables in Body
+        modified_vars = []
+        for child in ast.walk(node):
+            if isinstance(child, ast.Assign):
+                for target in child.targets:
+                    if isinstance(target, ast.Name):
+                        if target.id not in modified_vars: modified_vars.append(target.id)
+            elif isinstance(child, ast.AugAssign):
+                if isinstance(child.target, ast.Name):
+                    if child.target.id not in modified_vars: modified_vars.append(child.target.id)
+        
+        
+        # Include outer loop variables for nested loop context
+        for outer in self.loop_vars_stack:
+            if outer and outer != loop_var and outer not in modified_vars:
+                modified_vars.append(outer)
+
+        # Remove loop var from modified list to avoid dupes (it's verified separately)
+        if loop_var in modified_vars:
+            modified_vars.remove(loop_var)
+
+        # Tracker Init (Before Loop)
         tracker_init = ast.Expr(
             value=ast.Call(
-                func=ast.Name(id='_track_loop_init', ctx=ast.Load()),
+                func=ast.Name(id='_track_loop', ctx=ast.Load()),
                 args=[
-                    ast.Constant(value=loop_name),
-                    # Pass range loop expr text
-                    ast.Constant(value=f"{MakeStr(node.target)} ({_make_range_expr(node.iter)})"),
-                    ast.Constant(value=MakeStr(node.target))
+                    ast.Constant(value=name), 
+                    ast.Call(func=ast.Name(id='locals', ctx=ast.Load()), args=[], keywords=[]),
+                    ast.List(elts=[ast.Constant(value=v) for v in modified_vars], ctx=ast.Load()),
+                    ast.Constant(value=loop_var),
+                    ast.Constant(value=range_str),
+                    ast.Constant(value=True) # is_init
                 ],
                 keywords=[]
             )
         )
-        
-        # Track loop iterations at start of body
-        # We need to capture ALL modified variables in the loop
-        # Simple heuristic: scan body for assignments
-        # Use a visitor to find Store nodes
-        modified_vars = set()
-        for child in ast.walk(node):
-            if isinstance(child, ast.Name) and isinstance(child.ctx, ast.Store):
-                 modified_vars.add(child.id)
-        
-        # Also include variables from range() (e.g. range(n))
-        # Scan node.iter for Name loads
-        for child in ast.walk(node.iter):
-            if isinstance(child, ast.Name) and isinstance(child.ctx, ast.Load):
-                 modified_vars.add(child.id)
-        
-        # Add outer loop variables if present (Context)
-        if self.loop_vars_stack:
-             modified_vars.update(self.loop_vars_stack)
-        
-        # Push current loop var
-        current_loop_var = MakeStr(node.target)
-        if current_loop_var: self.loop_vars_stack.append(current_loop_var)
 
+        # Tracker Body (End of Body)
         tracker = ast.Expr(
             value=ast.Call(
                 func=ast.Name(id='_track_loop', ctx=ast.Load()),
                 args=[
-                    ast.Constant(value=loop_name), 
-                    ast.Constant(value=list(modified_vars)),
-                    ast.Constant(value=_make_range_expr(node.iter)), # Pass iter repr for header
-                    ast.Constant(value=MakeStr(node.target))
+                    ast.Constant(value=name), 
+                    ast.Call(func=ast.Name(id='locals', ctx=ast.Load()), args=[], keywords=[]),
+                    ast.List(elts=[ast.Constant(value=v) for v in modified_vars], ctx=ast.Load()),
+                    ast.Constant(value=loop_var),
+                    ast.Constant(value=range_str),
+                    ast.Constant(value=False) # is_init
                 ],
                 keywords=[]
             )
         )
+        node.body.append(tracker)
         
-        node.body.insert(0, tracker)
-        
-        # Prepend init outside loop
-        if not hasattr(node, '_instrumented'):
-             # Wrap in list if needed, ast expects list for body
-             pass
-
-        # We need to insert init BEFORE the loop. 
-        # But visit_For returns the node. We can return a list of nodes [init, for]
-        # BUT standard generic_visit expects node.
-        # So we update parent? No, just rely on visit returning list/node.
-        # AST transform supports returning list of nodes.
-        
+        # Push current loop var to stack for children
+        self.loop_vars_stack.append(loop_var)
         self.generic_visit(node)
+        self.loop_vars_stack.pop()
         
-        if current_loop_var: self.loop_vars_stack.pop()
-
         return [tracker_init, node]
 
     def visit_While(self, node):
@@ -4196,46 +3952,11 @@ try:
     
     exec(compile(_tree, filename="<string>", mode="exec"))
     
-    # Scan for structures (Trees, Graphs, Linked Lists)
-    # Scan for structures (Trees, Graphs, Linked Lists)
+    # Scan for tree variables (Node with left/right)
     for _var_name, _var_val in list(locals().items()):
-        if _var_name.startswith('_') or _var_name in ['In', 'Out', 'exit', 'quit']: continue
-        # Filter functions, modules, classes
-        if hasattr(_var_val, '__call__') or type(_var_val).__name__ == 'module': continue
-        
-        # 1. Objects (Trees, Linked Lists)
-        if hasattr(_var_val, '__dict__') or hasattr(_var_val, '__slots__'):
-             # Linked List (next) or Tree (left/right/children)
-             if hasattr(_var_val, 'left') or hasattr(_var_val, 'right') or hasattr(_var_val, 'children') or hasattr(_var_val, 'next'):
-                 _track_tree(_var_name, _var_val)
-
-        # 2. Adjacency Matrix (List of Lists of Numbers)
-        elif isinstance(_var_val, list) and len(_var_val) > 0 and isinstance(_var_val[0], list):
-             _is_matrix = True
-             _n_rows = len(_var_val)
-             for _row in _var_val:
-                 if not isinstance(_row, list) or len(_row) != _n_rows:
-                     _is_matrix = False
-                     break
-                 for _cell in _row:
-                      if not isinstance(_cell, (int, float)):
-                          _is_matrix = False
-                          break
-             if _is_matrix:
-                 _track_data['graphs'][_var_name] = {'type': 'matrix', 'data': _var_val}
-
-        # 3. Adjacency List (Dict[Node, List[Node]])
-        elif isinstance(_var_val, dict) and len(_var_val) > 0:
-             _is_adj = True
-             for _k, _v in _var_val.items():
-                 if not isinstance(_v, list):
-                     _is_adj = False
-                     break
-                 if not isinstance(_k, (int, str)):
-                     _is_adj = False
-                     break
-             if _is_adj:
-                 _track_data['graphs'][_var_name] = {'type': 'adj_list', 'data': _var_val}
+        if not _var_name.startswith('_') and hasattr(_var_val, '__dict__'):
+            if hasattr(_var_val, 'left') or hasattr(_var_val, 'right') or hasattr(_var_val, 'children'):
+                _track_tree(_var_name, _var_val)
     
     sys.stdout = _old_stdout
 except Exception as e:
@@ -4272,25 +3993,9 @@ function renderIterations() {
 
     let html = '';
 
-    // Render Loops (Merged View)
+    // Render Loops
     if (iterationData.loops) {
-        const entries = Object.entries(iterationData.loops);
-        const hiddenLoops = new Set();
-
-        // Smart Merge: Hide outer loops if inner loops display their context
-        entries.forEach(([nameA, dataA]) => {
-            if (!dataA.loop_var) return;
-            entries.forEach(([nameB, dataB]) => {
-                if (nameA === nameB) return;
-                // If Loop B displays Loop A's variable, assume B covers A
-                if (dataB.variables && dataB.variables.includes(dataA.loop_var)) {
-                    hiddenLoops.add(nameA);
-                }
-            });
-        });
-
-        html += entries.map(([name, data]) => {
-            if (hiddenLoops.has(name)) return '';
+        html += Object.entries(iterationData.loops).map(([name, data]) => {
             const vars = data.variables || [];
             const rows = data.iterations || [];
 
@@ -4361,15 +4066,8 @@ function renderIterations() {
 
 
 
-    // Render Recursion Trace Table (Smart Filter)
-    let showRecursion = false;
+    // Render Recursion Trace Table
     if (iterationData.recursion && iterationData.recursion.length > 0) {
-        const counts = {};
-        iterationData.recursion.forEach(n => counts[n.func] = (counts[n.func] || 0) + 1);
-        showRecursion = Object.values(counts).some(c => c > 1);
-    }
-
-    if (showRecursion) {
         // Build Tree structure to understand call relationships
         const roots = [];
         const map = {};
@@ -4433,9 +4131,9 @@ function renderIterations() {
 
             return `
                 <tr>
-                    <td><div style="max-width:120px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${funcStr} ${isEnter ? 'Input' : 'Return'}">${funcStr} ${isEnter ? '⤵' : '⤴'}</div></td>
-                    <td><div style="max-width:100px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${valueStr.replace(/<[^>]*>/g, '')}">${valueStr}</div></td>
-                    <td style="font-size:10px; color:var(--text-secondary);"><div style="max-width:150px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${actionStr}</div></td>
+                    <td>${funcStr} ${isEnter ? '⤵' : '⤴'}</td>
+                    <td>${valueStr}</td>
+                    <td style="font-size:10px; color:var(--text-secondary);">${actionStr}</td>
                 </tr>
             `;
         }).join('');
@@ -4464,100 +4162,69 @@ function renderIterations() {
             </div>
         `;
 
-        // 2. Mermaid Recursion Tree
-        let recTreeHtml = '';
-        if (roots.length > 0) {
-            let mermaidDef = 'graph TD;\n';
-            const traverse = (node, pid) => {
-                const id = `rec${Math.random().toString(36).substr(2, 7)}`;
+        // 2. Visual Tree HTML (Graphical Binary-like Tree)
+        // Helper to render a visual tree with SVG-like connections
+        const renderVisualTree = (root) => {
+            if (!root) return '';
+
+            // Get label for node
+            const getLabel = (node) => {
                 const args = Object.values(node.args || {}).join(',');
                 const ret = node.return && node.return !== 'None' ? `=${node.return}` : '';
-                const label = `${node.func}(${args})${ret}`;
-                mermaidDef += `${id}["${(label || '').replace(/"/g, "'")}"];\n`;
-                if (pid) mermaidDef += `${pid} --> ${id};\n`;
-                if (node.children) node.children.forEach(c => traverse(c, id));
+                return `${args}${ret}`;
             };
-            roots.forEach(r => traverse(r, null));
 
-            recTreeHtml = `
-                 <div class="iteration-card">
-                     <div class="iteration-header">
+            // Build tree levels for proper spacing
+            const levels = [];
+            const buildLevels = (node, depth) => {
+                if (!levels[depth]) levels[depth] = [];
+                levels[depth].push(node);
+                if (node.children) {
+                    node.children.forEach(child => buildLevels(child, depth + 1));
+                }
+            };
+            buildLevels(root, 0);
+
+            // Render with flex layout for proper centering
+            const renderTreeNode = (node) => {
+                const label = getLabel(node);
+                const hasChildren = node.children && node.children.length > 0;
+
+                return `
+                    <div class="tree-node-wrapper">
+                        <div class="tree-node" title="${escapeHtml(node.func)}(${label})">
+                            <span class="tree-label">${escapeHtml(label || node.func)}</span>
+                        </div>
+                        ${hasChildren ? `
+                            <div class="tree-connector"></div>
+                            <div class="tree-children">
+                                ${node.children.map(child => renderTreeNode(child)).join('')}
+                            </div>
+                        ` : ''}
+                    </div>
+                `;
+            };
+
+            return `<div class="visual-tree">${renderTreeNode(root)}</div>`;
+        };
+
+        let treeHtml = '';
+        if (roots.length > 0) {
+            treeHtml = `
+                <div class="iteration-card">
+                    <div class="iteration-header">
                          <span class="iteration-name">🌳 Recursion Tree</span>
-                     </div>
-                     <div class="mermaid-container" style="padding: 10px; text-align: center;">
-                         <div class="mermaid">${mermaidDef}</div>
-                     </div>
-                 </div>
-             `;
+                    </div>
+                    <div class="iteration-table-container" style="padding: 8px; overflow-x: auto;">
+                        ${roots.map(root => renderVisualTree(root)).join('')}
+                    </div>
+                </div>
+            `;
         }
 
-        html = recTreeHtml + recursionHtml + html;
+        // Combine: Tree first, then Table
+        html = treeHtml + recursionHtml + html;
     }
-
-    // Render Data Structures (Mermaid) - Graphs, Trees, Linked Lists
-    const graphs = iterationData.graphs || {};
-    const trs = iterationData.trees || {};
-    let dsHtml = '';
-
-    // Helper to escape Mermaid labels
-    const escM = (s) => (s || '').replace(/"/g, "'").replace(/\n/g, ' ');
-
-    // 1. Trees/Linked Lists from Objects
-    if (Object.keys(trs).length > 0) {
-        Object.entries(trs).forEach(([name, root]) => {
-            // Heuristic: Use LR for Linked Lists (next prop), TD for Trees
-            let dir = 'TD';
-            if (root && root.next && !root.left && !root.right) dir = 'LR';
-
-            let mermaidDef = `graph ${dir};\n`;
-            const traverse = (node, pid) => {
-                if (!node) return;
-                const id = `n${Math.random().toString(36).substr(2, 7)}`;
-                const val = node.val !== undefined ? String(node.val) : '';
-                mermaidDef += `${id}(("${escM(val)}")];\n`; // Round shape
-                if (pid) mermaidDef += `${pid} --> ${id};\n`;
-
-                if (node.left) traverse(node.left, id);
-                if (node.right) traverse(node.right, id);
-                if (node.children) node.children.forEach(c => traverse(c, id));
-                if (node.next) traverse(node.next, id); // Linked List
-            };
-            traverse(root, null);
-            dsHtml += `<div class="iteration-card"><div class="iteration-header"><span class="iteration-name">Structures: ${escapeHtml(name)}</span></div><div class="mermaid-container" style="padding:10px;"><div class="mermaid">${mermaidDef}</div></div></div>`;
-        });
-    }
-
-    // 2. Explicit Graphs (Matrices/Adj Lists)
-    if (Object.keys(graphs).length > 0) {
-        Object.entries(graphs).forEach(([name, info]) => {
-            let mermaidDef = 'graph TD;\n';
-            const data = info.data;
-            if (info.type === 'matrix') {
-                // Nodes
-                for (let i = 0; i < data.length; i++) mermaidDef += `${i}((${i}));\n`;
-                // Edges
-                for (let i = 0; i < data.length; i++) {
-                    for (let j = 0; j < data.length; j++) {
-                        const w = data[i][j];
-                        if (w) { // Edge exists
-                            const label = (w !== 1 && w !== true) ? `|${w}|` : '';
-                            mermaidDef += `${i} -->${label} ${j};\n`;
-                        }
-                    }
-                }
-            } else if (info.type === 'adj_list') {
-                Object.keys(data).forEach(u => mermaidDef += `${u}((${u}));\n`);
-                Object.entries(data).forEach(([u, ns]) => {
-                    if (Array.isArray(ns)) ns.forEach(v => mermaidDef += `${u} --> ${v};\n`);
-                });
-            }
-            dsHtml += `<div class="iteration-card"><div class="iteration-header"><span class="iteration-name">Graph: ${escapeHtml(name)}</span></div><div class="mermaid-container" style="padding:10px;"><div class="mermaid">${mermaidDef}</div></div></div>`;
-        });
-    }
-
-    html = dsHtml + html;
-
-    setTimeout(() => { if (window.mermaid) mermaid.init(undefined, document.querySelectorAll('.mermaid')); }, 200);
 
 
     panel.innerHTML = html || '<div class="empty-state">No data collected</div>';
@@ -4647,8 +4314,4 @@ document.addEventListener('DOMContentLoaded', () => {
     initIterationVisualizer();
 });
 
-// Ultra-early fallback: ensure app is visible even before DOMContentLoaded fires
-(function () {
-    const app = document.getElementById('app');
-    if (app) app.classList.remove('hidden');
-})();
+
