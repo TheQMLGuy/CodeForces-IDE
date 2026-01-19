@@ -1192,213 +1192,302 @@ async function updateVariables() {
     const code = editor.getValue();
     const vars = parseVariables(code);
 
-    // Grouping Logic
-    const groups = {
-        'input': [],
-        'loop': [],
-        'computation': [],
-        'inline': [],
-        'function': [],
-        'condition': []  // New group
-    };
+    // Scope Hierarchy: { scopeName: { _type: 'class|global', subScopes: { subScopeName: [vars] }, rootVars: [vars] } }
+    const hierarchy = {};
 
     vars.forEach(v => {
-        // Skip __init__ - it's noise in the variable panel
-        if (v.name === '__init__') return;
+        // Skip noise
+        if (v.name === '__init__' && v.type === 'function') return;
+        if (v.type === 'function' && v.name === v.scope) return;
+        if (v.type === 'loop') return; // Filter out loop iterators from variable panel
 
-        if (groups[v.category]) {
-            groups[v.category].push(v);
+        const scope = v.scope || 'global';
+        const subScope = v.subScope || '_root'; // _root = variables directly in class or global
+        const scopeType = v.scopeType || 'global';
+
+        if (!hierarchy[scope]) {
+            hierarchy[scope] = { _type: scopeType, subScopes: {}, rootVars: [] };
+        }
+
+        if (subScope === '_root') {
+            hierarchy[scope].rootVars.push(v);
         } else {
-            groups['computation'].push(v); // Default
+            if (!hierarchy[scope].subScopes[subScope]) {
+                hierarchy[scope].subScopes[subScope] = [];
+            }
+            hierarchy[scope].subScopes[subScope].push(v);
         }
     });
 
-    // Add Conditions from iterationData
+    // Process Conditions (Global for now)
     if (iterationData && iterationData.conditions) {
+        if (!hierarchy['global']) hierarchy['global'] = { _type: 'global', subScopes: {}, rootVars: [] };
+
         Object.entries(iterationData.conditions).forEach(([name, data]) => {
             const values = data.values || [];
             if (values.length > 0) {
-                const lastValue = values[values.length - 1];
-                const condName = data.source || name;
-
-                // Condition History - Dedupe consecutive values
                 const uniqueVals = [];
                 for (let i = 0; i < values.length; i++) {
                     if (i === 0 || values[i] !== values[i - 1]) uniqueVals.push(values[i]);
                 }
+                let displayValue = values[values.length - 1];
+                if (uniqueVals.length > 2) displayValue = `${uniqueVals[0]} →...→ ${uniqueVals[uniqueVals.length - 1]}`;
+                else if (uniqueVals.length === 2) displayValue = uniqueVals.join(' → ');
 
-                // Generate display value (truncated if needed)
-                let displayValue = lastValue;
-                if (uniqueVals.length > 2) {
-                    // Show: first -> ... -> last for default, full on hover
-                    displayValue = `${uniqueVals[0]} → ... → ${uniqueVals[uniqueVals.length - 1]}`;
-                    variableHistories[condName] = uniqueVals.join(' → ');
-                } else if (uniqueVals.length === 2) {
-                    displayValue = uniqueVals.join(' → ');
-                }
-
-                groups['condition'].push({
-                    name: condName,
-                    type: 'boolean',
+                hierarchy['global'].rootVars.push({
+                    name: data.source || name,
+                    type: 'bool',
                     category: 'condition',
-                    value: displayValue
+                    value: displayValue,
+                    scope: 'global'
                 });
             }
         });
     }
 
-    if (Object.values(groups).every(g => g.length === 0)) {
+    if (Object.keys(hierarchy).length === 0) {
         elements.variablesPanel.innerHTML = '<div class="empty-state">No variables detected</div>';
         return;
     }
 
     let html = '';
-    const groupTitles = {
-        'input': 'Input Variables',
-        'loop': 'Loop State',
-        'computation': 'Computation Results',
-        'inline': 'Inline / Temp',
-        'function': 'Functions',
-        'condition': 'Conditions' // Title
-    };
+    const scopeIcons = { 'global': '🌐', 'class': '📦', 'function': '⚡' };
 
-    const renderGroup = (category, varsList) => {
-        if (varsList.length === 0) return '';
+    // Render individual variable item
+    const renderVarItem = (v) => {
+        let value = v.value;
+        if (value === undefined) value = variableValues[v.name];
+        const type = variableTypes[v.name] || v.type;
+        let valueContent = value !== undefined ? escapeHtml(String(value)) : '';
+        const historyContent = variableHistories[v.name] ? escapeHtml(variableHistories[v.name]) : '';
 
-        const listHtml = varsList.map(v => {
-            // Priority: v.value (for conditions) -> variableValues lookup -> undefined
-            let value = v.value;
-            if (value === undefined) {
-                value = variableValues[v.name];
-            }
+        // Restore pin state
+        const pinKey = `${v.scope || 'global'}:${v.name}`;
+        const pinLevel = window.variablePinStates ? (window.variablePinStates[pinKey] || 0) : 0;
+        const level1Style = pinLevel >= 1 ? 'display:block;' : 'display:none;';
+        const level2Style = pinLevel >= 2 ? 'display:block;' : 'display:none;';
+        const pinClass = pinLevel === 1 ? 'pin-level-1' : (pinLevel === 2 ? 'pin-level-2' : '');
 
-            // Use runtime type if available, else regex guess
-            const type = variableTypes[v.name] || v.type;
+        const valueDisplay = value !== undefined ?
+            `<div class="var-value-container" onclick="event.stopPropagation(); cycleVarPin(this.closest('.var-item'))">
+                <div class="var-current-value" style="${level1Style}">${valueContent}</div>
+                <div class="var-full-history" style="${level2Style}">${historyContent || valueContent}</div>
+            </div>` : '';
 
-            // Value display - using span for compact flex layout
-            let valueContent = value !== undefined ? escapeHtml(String(value)) : '';
-            let valueClass = 'var-value';
+        let actionButtons = '';
+        if (v.type !== 'loop') {
+            actionButtons = `<button class="var-action" onclick="event.stopPropagation(); insertCode('print(${v.name})')" title="Print">📋</button>`;
+        }
 
-            if (variableHistories[v.name]) {
-                const full = escapeHtml(variableHistories[v.name]);
-                const short = valueContent;
-                valueContent = `<span class="history-short">${short}</span><span class="history-full" style="display:none;">${full}</span>`;
-                valueClass += ' var-history';
-            }
+        let extraInfo = '';
+        if (v.type === 'loop' && v.loopInfo) {
+            extraInfo = `<div class="loop-info">${v.loopInfo.start}→${v.loopInfo.end}:${v.loopInfo.step}</div>`;
+        }
 
-            const valueDisplay = value !== undefined ?
-                `<span class="${valueClass}" title="${escapeHtml(String(value))}">${valueContent}</span>` :
-                '<span class="var-value"></span>';
-
-            // Compact action buttons - only for regular variables
-            let actionButtons = '';
-            if (v.type !== 'loop' && v.type !== 'function') {
-                actionButtons = `<button class="var-action" onclick="insertCode('print(${v.name})')" title="Print">📋</button>`;
-
-                if (['list', 'str', 'dict'].includes(v.type)) {
-                    actionButtons += `<button class="var-action" onclick="insertCode('print(len(${v.name}))')" title="Len">📏</button>`;
-                }
-
-                if (v.type === 'list') {
-                    actionButtons += `<button class="var-action" onclick="insertCode('${v.name}_sum = sum(${v.name})\\\\nprint(${v.name}_sum)')" title="Sum">∑</button>`;
-                    actionButtons += `<button class="var-action" onclick="insertCode('for item in ${v.name}:\\\\n    print(item)')" title="Loop">⟳</button>`;
-                }
-
-                // Per-variable Convert Dropdown (→ icon)
-                actionButtons += `
-                    <div class="var-dropdown">
-                        <button class="var-action" title="Convert Type">→</button>
-                        <div class="var-dropdown-menu convert-menu">
-                            <button onclick="insertCode('${v.name} = int(${v.name})')">int</button>
-                            <button onclick="insertCode('${v.name} = str(${v.name})')">str</button>
-                            <button onclick="insertCode('${v.name} = float(${v.name})')">float</button>
-                            <button onclick="insertCode('${v.name} = list(${v.name})')">list</button>
-                            <button onclick="insertCode('${v.name} = set(${v.name})')">set</button>
-                        </div>
-                    </div>`;
-
-                // Operator dropdown for numeric types (+, -, *, /, %)
-                if (['int', 'float'].includes(v.type)) {
-                    actionButtons += `
-                        <div class="var-dropdown">
-                            <button class="var-action" title="Math Operations">±</button>
-                            <div class="var-dropdown-menu operator-menu">
-                                <button onclick="promptOperator('${v.name}', '+')">+ Add</button>
-                                <button onclick="promptOperator('${v.name}', '-')">− Sub</button>
-                                <button onclick="promptOperator('${v.name}', '*')">× Mul</button>
-                                <button onclick="promptOperator('${v.name}', '/')">÷ Div</button>
-                                <button onclick="promptOperator('${v.name}', '%')">% Mod</button>
-                            </div>
-                        </div>`;
-                }
-            }
-
-            // Special display for loop variables
-            let extraInfo = '';
-            if (v.type === 'loop' && v.loopInfo) {
-                extraInfo = `<div class="loop-info">${v.loopInfo.start}→${v.loopInfo.end}:${v.loopInfo.step}</div>`;
-            }
-
-            // Special display for functions
-            if (v.type === 'function') {
-                extraInfo = `<div class="func-return">→ ${escapeHtml(v.returnValue || 'None')}</div>`;
-            }
-
-            return `
-            <div class="var-item ${v.type === 'loop' ? 'var-loop' : ''} ${v.type === 'function' ? 'var-function' : ''}"
-                 onmouseenter="highlightVariable('${v.name}')" onmouseleave="clearHighlights()">
-                <div class="var-header">
-                    <div class="var-icon">${getTypeIcon(v.type)}</div>
-                    <span class="var-name" title="${v.name}">${v.name}</span>
-                    <div class="var-actions">
-                        ${actionButtons}
-                    </div>
-                    <span class="var-spacer"></span>
-                    <span class="var-type">${v.type}</span>
-                </div>
-                ${v.type === 'loop' || v.type === 'function' ? extraInfo : valueDisplay}
-                ${(() => {
-                    if (typeof renderDataStructure !== 'undefined' && typeof detectDataStructureType !== 'undefined') {
-                        if (v.type !== 'loop' && v.type !== 'function') {
-                            const dsType = detectDataStructureType(v.name, value);
-                            if (dsType && value !== undefined) {
-                                return renderDataStructure(v.name, String(value), dsType);
-                            }
-                        }
-                    }
-                    return '';
-                })()}
-            </div>
-        `;
-        }).join('');
+        // Mermaid for data structures (Node, Graph, Dict, Matrix)
+        let mermaidViz = '';
+        if (value && (type === 'node' || type === 'dict' || type === 'list' || type === 'other')) {
+            mermaidViz = generateMermaidForDataStructure(v.name, value);
+        }
 
         return `
-            <div class="var-group">
-                <div class="var-group-title" style="font-size: 10px; font-weight: bold; text-transform: uppercase; color: var(--text-muted); margin-bottom: 4px; margin-top: 8px;">
-                    ${groupTitles[category]}
+        <div class="var-item ${v.type === 'loop' ? 'var-loop' : ''} ${pinClass}" 
+             data-pin-level="${pinLevel}" data-pin-key="${pinKey}"
+             onmouseenter="showVarPreview(this)" onmouseleave="hideVarPreview(this)"
+             onclick="cycleVarPin(this)">
+            <div class="var-header">
+                <div class="var-icon">${getTypeIcon(type)}</div>
+                <span class="var-name" title="${v.name}">${v.name}</span>
+                <div class="var-actions" onclick="event.stopPropagation()">${actionButtons}</div>
+                <span class="var-spacer"></span>
+                <span class="var-type">${type}</span>
+            </div>
+            ${v.type === 'loop' ? extraInfo : valueDisplay}
+            ${mermaidViz}
+        </div>`;
+    };
+
+    // Render Logic
+    const renderVarList = (list) => list.map(v => renderVarItem(v)).join('');
+
+    const renderSubScope = (subName, list) => {
+        if (list.length === 0) return '';
+        return `
+            <div class="sub-scope-group">
+                <div class="sub-scope-header"><span class="sub-scope-icon">ƒ</span> ${subName}</div>
+                <div class="sub-scope-vars">${renderVarList(list)}</div>
+            </div>`;
+    };
+
+    const renderScope = (name, data) => {
+        const rootHtml = renderVarList(data.rootVars);
+        const subHtml = Object.keys(data.subScopes).map(sub => renderSubScope(sub, data.subScopes[sub])).join('');
+
+        if (!rootHtml && !subHtml) return '';
+
+        const icon = scopeIcons[data._type] || '📁';
+        const count = data.rootVars.length + Object.values(data.subScopes).reduce((a, b) => a + b.length, 0);
+
+        return `
+            <div class="scope-group">
+                <div class="scope-header" onclick="this.parentElement.classList.toggle('collapsed')">
+                    ${icon} <span class="scope-name">${name === 'global' ? 'Global' : name}</span>
+                    <span class="scope-count">(${count})</span>
                 </div>
-                ${listHtml}
+                <div class="scope-vars">
+                    ${rootHtml}
+                    ${subHtml}
+                </div>
             </div>
         `;
     };
 
-    html += renderGroup('input', groups['input']);
-    html += renderGroup('loop', groups['loop']);
-    html += renderGroup('computation', groups['computation']);
-    html += renderGroup('function', groups['function']);
-    html += renderGroup('inline', groups['inline']);
-    html += renderGroup('condition', groups['condition']);
+    // Render Global first
+    if (hierarchy['global']) html += renderScope('global', hierarchy['global']);
+    Object.keys(hierarchy).filter(k => k !== 'global').forEach(k => html += renderScope(k, hierarchy[k]));
 
     elements.variablesPanel.innerHTML = html;
 
-    // Initialize Mermaid for any new diagrams
+    // Init Mermaid
     if (typeof mermaid !== 'undefined') {
-        try {
-            mermaid.init(undefined, document.querySelectorAll('.variables-panel .mermaid'));
-        } catch (e) { console.debug('Mermaid init error:', e); }
+        try { mermaid.init(undefined, document.querySelectorAll('.variables-panel .mermaid')); } catch (e) { }
     }
 }
 
+// Global state for variable pinning persistence
+window.variablePinStates = {};
+
+function getTypeIcon(type) {
+    const icons = {
+        list: '[]',
+        int: '#',
+        str: 'Aa',
+        dict: '{}',
+        set: '{}',
+        bool: '☯',
+        float: '.0',
+        node: '🔗',
+        loop: '🔄',
+        function: 'ƒ',
+        other: '?'
+    };
+    return icons[type] || '?';
+}
+
+// Generate Mermaid for data structures
+function generateMermaidForDataStructure(varName, valueStr) {
+    if (!valueStr) return '';
+
+    // Linked list pattern (Node)
+    if (valueStr.includes('Node(')) {
+        const nodes = valueStr.match(/Node\(([^)]*)\)/g) || [];
+        if (nodes.length > 0) {
+            let def = 'graph LR\n';
+            nodes.forEach((n, i) => {
+                const val = n.match(/Node\(([^)]*)\)/)?.[1] || i;
+                def += `    N${i}["${val}"]\n`;
+                if (i > 0) def += `    N${i - 1} --> N${i}\n`;
+            });
+            return `<div class="mermaid" style="margin:4px 0;">${def}</div>`;
+        }
+    }
+
+    // Try detecting Adjacency List (Dict: {key: [neighbors], ...})
+    // Regex matches basic python dict pattern: { ... }
+    // Look for starting { anywhere to handle Class({...}) wrappers
+    const dictStart = valueStr.indexOf('{');
+    if (dictStart !== -1 && (valueStr.includes(': [') || valueStr.includes(': {'))) {
+        try {
+            // Extract the potential dict part
+            // Find potential end }
+            const dictEnd = valueStr.lastIndexOf('}');
+            if (dictEnd > dictStart) {
+                const content = valueStr.substring(dictStart + 1, dictEnd);
+                if (content) {
+                    let def = 'graph TD\n';
+                    let hasEdges = false;
+
+                    // Extract all "key: [list]" patterns
+                    const entryRegex = /([a-zA-Z0-9_'"]+)\s*:\s*(?:\[|\{)(.*?)(?:\]|\})/g;
+                    let match;
+                    let foundAny = false;
+
+                    while ((match = entryRegex.exec(content)) !== null) {
+                        foundAny = true;
+                        const source = match[1].replace(/['"]/g, '');
+                        const neighborsStr = match[2];
+
+                        // Parse neighbors (comma separated values)
+                        const neighbors = neighborsStr.split(',').map(s => s.trim()).filter(s => s);
+
+                        if (neighbors.length > 0) {
+                            hasEdges = true;
+                            neighbors.forEach(target => {
+                                const targetClean = target.replace(/['"]/g, '');
+                                def += `    ${source} --> ${targetClean}\n`;
+                            });
+                        } else {
+                            def += `    ${source}\n`; // Isolated node
+                            hasEdges = true;
+                        }
+                    }
+
+                    if (foundAny && hasEdges) {
+                        return `<div class="mermaid" style="margin:4px 0;">${def}</div>`;
+                    }
+                }
+            }
+        } catch (e) { console.debug('Graph parsing error', e); }
+    }
+
+    // Try detecting Adjacency Matrix (List of Lists: [[0, 1], [1, 0]])
+    const listStart = valueStr.indexOf('[[');
+    if (listStart !== -1 && valueStr.includes(']]')) {
+        try {
+            const listEnd = valueStr.lastIndexOf(']]') + 2; // Include ]]
+            const content = valueStr.substring(listStart + 1, listEnd - 1); // Remove outer [ ]
+
+            // Split into rows: find [...] patterns
+            const rowMatches = content.match(/\[(.*?)\]/g);
+
+            if (rowMatches && rowMatches.length > 0) {
+                // Verify it's square-ish matrix (rows equal length) ?
+                // We just assume index i -> index j connection
+
+                let def = 'graph TD\n';
+                let hasEdges = false;
+
+                rowMatches.forEach((rowStr, i) => {
+                    // Extract numbers from row
+                    const validRowStr = rowStr.slice(1, -1); // remove [ ]
+                    if (!validRowStr.trim()) return;
+
+                    const cols = validRowStr.split(',').map(s => parseFloat(s.trim()));
+
+                    cols.forEach((val, j) => {
+                        if (val !== 0 && !isNaN(val)) { // Assuming non-zero means edge
+                            def += `    ${i} --> ${j}\n`;
+                            // Optional: Add weight label? -->|${val}|
+                            hasEdges = true;
+                        }
+                    });
+
+                    // Ensure node exists even if no edges?
+                    if (!hasEdges && cols.every(c => c === 0)) {
+                        def += `    ${i}\n`; // Isolated node
+                        hasEdges = true;
+                    }
+                });
+
+                if (hasEdges) {
+                    return `<div class="mermaid" style="margin:4px 0;">${def}</div>`;
+                }
+            }
+        } catch (e) { console.debug('Matrix parsing error', e); }
+    }
+
+    return '';
+}
 
 
 // Fetch variable values after code execution
@@ -1415,9 +1504,44 @@ async function fetchVariableValues() {
             const result = await pyodide.runPythonAsync(`
 try:
     _val = ${v.name}
-    # Show full values for lists, dicts, sets
-    _result = repr(_val)
     _type = type(_val).__name__
+    
+    # Better representation for custom objects
+    _repr = repr(_val)
+    
+    # Check if it's a custom object with default repr (shows memory address)
+    if _repr.startswith('<') and 'object at 0x' in _repr:
+        # Try to get a nice representation
+        _class_name = _type
+        
+        # Try common attribute names for value
+        _value_repr = None
+        for attr in ['val', 'value', 'data', 'key', 'name', 'id', 'adj_list', 'adjacency_list', 'graph', 'nodes', 'edges']:
+            if hasattr(_val, attr):
+                try:
+                    _value_repr = repr(getattr(_val, attr))
+                    break
+                except:
+                    pass
+        
+        # Try __str__ if it's different from default __repr__
+        if _value_repr is None:
+            try:
+                _str = str(_val)
+                if not _str.startswith('<'):
+                    _value_repr = _str
+            except:
+                pass
+        
+        # Build nice representation
+        if _value_repr is not None:
+            _result = f'{_class_name}({_value_repr})'
+        else:
+            # Fallback: show class name with abbreviated address
+            _addr = hex(id(_val))[-4:]
+            _result = f'{_class_name}@{_addr}'
+    else:
+        _result = _repr
 except:
     _result = '?'
     _type = 'other'
@@ -1460,21 +1584,50 @@ function parseVariables(code) {
     const seen = new Set();
     const lines = code.split('\n');
 
-    // Track function definitions and their return values
-    const functions = new Map();
+    // Track scopes
+    let currentClass = null;
+    let classIndent = 0;
     let currentFunction = null;
     let functionIndent = 0;
+
+    // Track function definitions and their return values
+    const functions = new Map();
 
     lines.forEach((line, idx) => {
         const trimmed = line.trim();
         const indent = line.search(/\S|$/);
+
+        // Detect class definitions
+        const classMatch = trimmed.match(/^class\s+(\w+)/);
+        if (classMatch) {
+            currentClass = classMatch[1];
+            classIndent = indent;
+            currentFunction = null; // Reset function when entering class
+        }
+
+        // Exit class when dedent
+        if (currentClass && indent <= classIndent && trimmed && !trimmed.startsWith('class') && !trimmed.startsWith('#')) {
+            currentClass = null;
+        }
 
         // Detect function definitions
         const funcMatch = trimmed.match(/^def\s+(\w+)\s*\(/);
         if (funcMatch) {
             currentFunction = funcMatch[1];
             functionIndent = indent;
-            functions.set(currentFunction, { name: currentFunction, hasReturn: false, returnValue: 'None' });
+
+            // If inside a class, scope is class name. If global, scope is function name? 
+            // Better: Scope = Parent Container. SubScope = Function Name.
+            // Global Func: Scope=Global, SubScope=funcName
+            // Class Body: Scope=ClassName, SubScope=null
+            // Class Method: Scope=ClassName, SubScope=methodName
+
+            functions.set(currentFunction, {
+                name: currentFunction,
+                hasReturn: false,
+                returnValue: 'None',
+                scope: currentClass || 'global'
+            });
         }
 
         // Track return statements in functions
@@ -1512,42 +1665,85 @@ function parseVariables(code) {
                     step = args[2];
                 }
 
+                // Determine hierarchy
+                let scope = 'global';
+                let subScope = null;
+
+                if (currentClass) {
+                    scope = currentClass;
+                    if (currentFunction) subScope = currentFunction;
+                } else if (currentFunction) {
+                    scope = 'global'; // Top level function
+                    subScope = currentFunction; // Grouped under function name
+                }
+
                 vars.push({
                     name: loopVar,
                     type: 'loop',
-                    loopInfo: { start, end, step }
+                    loopInfo: { start, end, step },
+                    scope: scope,
+                    subScope: subScope,
+                    scopeType: currentClass ? 'class' : (currentFunction ? 'function' : 'global')
                 });
             }
         }
 
-        // Match regular variable assignments: var = value
-        const match = line.match(/^\s*([a-zA-Z_]\w*)\s*=\s*(.+)$/);
+        // Match regular variable assignments: var = value OR self.var = value
+        // Regex allows 'self.x' or standard 'x'
+        const match = line.match(/^\s*([a-zA-Z_][\w\.]*)\s*=\s*(.+)$/);
         if (match) {
-            const name = match[1];
+            let name = match[1];
             const value = match[2];
 
-            // Skip builtins and already seen
-            if (['self'].includes(name) || seen.has(name)) return;
+            // Filter out 'self' assignment if it's just 'self', but allow 'self.x'
+            if (name === 'self') return;
+            // If it's self.x, use x as name? Or keep self.x?
+            // "Question mark for variables inside class" -> User probably wants to see 'x' if locally defined, or 'self.x'.
+            // Let's keep name as is for now, but if it starts with 'self.', maybe scope it to class instance?
+
+            // Already seen check? 
+            if (seen.has(name)) return;
 
             let type = 'other';
+            let category = 'computation';
+
+            // Improved Type Inference
             if (value.includes('list(') || value.startsWith('[')) type = 'list';
             else if (value.includes('int(') || /^\d+$/.test(value.trim())) type = 'int';
-            else if (value.includes('input()') || value.startsWith('"') || value.startsWith("'")) type = 'str';
+            else if (value.includes('input()') || value.startsWith('"') || value.startsWith("'")) {
+                type = 'str';
+                category = 'input';
+            }
             else if (value.startsWith('{')) type = 'dict';
+            else if (value.includes('set(')) type = 'set';
             else if (value.includes('float(') || /^\d+\.\d+$/.test(value.trim())) type = 'float';
+            else if (value.includes('Node(') || value.includes('TreeNode(') || value.includes('ListNode(')) type = 'node';
+            // infer boolean
+            else if (value.trim() === 'True' || value.trim() === 'False') type = 'bool';
 
             seen.add(name);
-            vars.push({ name, type });
-        }
-    });
 
-    // Add functions to vars list
-    functions.forEach((func) => {
-        vars.push({
-            name: func.name,
-            type: 'function',
-            returnValue: func.returnValue
-        });
+            // Determine hierarchy
+            let scope = 'global';
+            let subScope = null;
+
+            if (currentClass) {
+                scope = currentClass;
+                if (currentFunction) subScope = currentFunction;
+            } else if (currentFunction) {
+                scope = 'global';
+                subScope = currentFunction;
+            }
+
+            vars.push({
+                name,
+                type,
+                category,
+                scope: scope,
+                subScope: subScope,
+                scopeType: currentClass ? 'class' : (currentFunction ? 'function' : 'global')
+            });
+        }
     });
 
     return vars;
@@ -1723,6 +1919,52 @@ function truncateValue(val) {
 function escapeHtml(str) {
     return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
+
+// Toggle pinned state for click-to-persist on history/iteration expansions
+// Global state for variable pinning persistence
+window.variablePinStates = {};
+
+window.togglePin = function (element) {
+    element.classList.toggle('pinned');
+};
+
+// Also support pinning iteration cards
+window.toggleIterationPin = function (element) {
+    element.closest('.iteration-card').classList.toggle('pinned');
+};
+
+// Cycle through 3 pin states for variables: 0=collapsed, 1=value, 2=history
+window.cycleVarPin = function (element) {
+    // Find the var-item container
+    const varItem = element.closest('.var-item');
+    if (!varItem) return;
+
+    // Get current pin level
+    let level = parseInt(varItem.dataset.pinLevel || '0');
+
+    // Cycle: 0 → 1 → 2 → 0
+    level = (level + 1) % 3;
+    varItem.dataset.pinLevel = level;
+
+    // Persist state
+    const pinKey = varItem.dataset.pinKey;
+    if (pinKey) {
+        window.variablePinStates[pinKey] = level;
+    }
+
+    // Find value container
+    const valueDiv = varItem.querySelector('.var-current-value');
+    const historyDiv = varItem.querySelector('.var-full-history');
+
+    // Update display based on level
+    if (valueDiv) valueDiv.style.display = level >= 1 ? 'block' : 'none';
+    if (historyDiv) historyDiv.style.display = level >= 2 ? 'block' : 'none';
+
+    // Update visual indicator
+    varItem.classList.remove('pin-level-1', 'pin-level-2');
+    if (level === 1) varItem.classList.add('pin-level-1');
+    if (level === 2) varItem.classList.add('pin-level-2');
+};
 
 // Global function for onclick
 window.insertCode = function (code) {
@@ -3782,6 +4024,7 @@ class Instrumenter(ast.NodeTransformer):
         
         
         # Include outer loop variables for nested loop context
+        # This is CRITICAL for 2D visualization grouping
         for outer in self.loop_vars_stack:
             if outer and outer != loop_var and outer not in modified_vars:
                 modified_vars.append(outer)
@@ -4005,16 +4248,167 @@ function renderIterations() {
 
     // Render Loops
     if (iterationData.loops) {
-        html += Object.entries(iterationData.loops).map(([name, data]) => {
+        const loopEntries = Object.entries(iterationData.loops);
+
+        // Check for 2D Loop Pattern (detected separately)
+        let outerLoop = null;
+        let innerLoop = null;
+        let outerKey = '';
+        let innerKey = '';
+
+        // Simple heuristic: look for vars 'i' and 'j'
+        for (const [key, data] of loopEntries) {
+            const vars = data.variables || [];
+            if (vars.includes('i') && !vars.includes('j')) { outerLoop = data; outerKey = key; }
+            if (vars.includes('j')) { innerLoop = data; innerKey = key; }
+        }
+
+        const handledKeys = new Set();
+
+        // If clear nested pattern found, render single Mermaid 2D View
+        if (outerLoop && innerLoop && innerLoop.iterations.length > outerLoop.iterations.length) {
+            handledKeys.add(outerKey);
+            handledKeys.add(innerKey);
+
+            // Render Nested Loop Table Visualization
+            let blockHtml = '<div class="nested-block-container">';
+
+            // Limit to reasonable size
+            const maxOuter = 20;
+            const maxInner = 50;
+
+            outerLoop.iterations.slice(0, maxOuter).forEach((oRow, iIdx) => {
+                const iVal = (oRow.values || oRow)['i'];
+                blockHtml += `<div class="nested-block-outer">`;
+                blockHtml += `<div class="nested-block-header">i = ${iVal}</div>`;
+
+                // Filter matching inner iterations
+                const segment = innerLoop.iterations.filter(row => {
+                    const rVal = row.values || row;
+                    return String(rVal['i']) === String(iVal);
+                });
+
+                if (segment.length === 0) {
+                    blockHtml += `<div class="nested-block-empty">(no inner iterations)</div>`;
+                } else {
+                    // Detect Columns (Dynamic)
+                    // Get all keys from first row, exclude 'i' (it's the header)
+                    const firstInner = segment[0].values || segment[0];
+                    const columns = Object.keys(firstInner).filter(k => k !== 'i');
+
+                    // Start Table
+                    blockHtml += `<table class="nested-table"><thead><tr>`;
+                    columns.forEach(col => blockHtml += `<th>${col}</th>`);
+                    blockHtml += `</tr></thead><tbody>`;
+
+                    // Table Rows
+                    segment.slice(0, maxInner).forEach((jRow) => {
+                        const vals = jRow.values || jRow;
+                        blockHtml += `<tr>`;
+                        columns.forEach(col => {
+                            blockHtml += `<td>${vals[col] !== undefined ? vals[col] : '-'}</td>`;
+                        });
+                        blockHtml += `</tr>`;
+                    });
+
+                    blockHtml += `</tbody></table>`;
+
+                    if (segment.length > maxInner) {
+                        blockHtml += `<div class="nested-block-empty" style="text-align:center;">... +${segment.length - maxInner} more</div>`;
+                    }
+                }
+
+                blockHtml += `</div>`; // Close outer block
+            });
+
+            blockHtml += '</div>';
+
+            html += `
+                <div class="iteration-card">
+                    <div class="iteration-header">
+                        <span class="iteration-name">🔄 2D Nested Loop Table</span>
+                    </div>
+                    ${blockHtml}
+                </div>
+            `;
+        }
+
+        // Render remaining loops normally
+        html += loopEntries.filter(([k]) => !handledKeys.has(k)).map(([name, data]) => {
             const vars = data.variables || [];
             const rows = data.iterations || [];
 
             if (rows.length === 0 || vars.length === 0) return '';
 
+            // Detect 2D Loop Pattern logic
+            // Check headers OR look into first row values
+            const firstRow = rows[0]?.values || rows[0] || {};
+            const availableKeys = Object.keys(firstRow);
+
+            const hasI = vars.includes('i') || availableKeys.includes('i');
+            const hasJ = vars.includes('j') || availableKeys.includes('j');
+            let matrixHtml = '';
+
+            if (hasI && hasJ) {
+                // Group by i, then j
+                const matrix = {};
+                const iVals = new Set();
+                const jVals = new Set();
+
+                rows.forEach(row => {
+                    const rowVals = row.values || row;
+                    const i = rowVals['i'];
+                    const j = rowVals['j'];
+                    if (i !== undefined && j !== undefined) {
+                        if (!matrix[i]) matrix[i] = {};
+                        matrix[i][j] = rowVals; // Store full row state
+                        iVals.add(i);
+                        jVals.add(j);
+                    }
+                });
+
+                const sortedIs = Array.from(iVals).sort((a, b) => a - b);
+                const sortedJs = Array.from(jVals).sort((a, b) => a - b);
+
+                if (sortedIs.length > 0 && sortedJs.length > 0) {
+                    // Identify value variables (not i or j)
+                    const valVars = vars.filter(v => v !== 'i' && v !== 'j');
+
+                    if (valVars.length > 0) {
+                        const matrixRows = sortedIs.map(i => {
+                            const cells = sortedJs.map(j => {
+                                const cellData = matrix[i]?.[j];
+                                if (!cellData) return '<td class="empty-cell"></td>';
+
+                                // Show value(s)
+                                const content = valVars.map(v => {
+                                    const val = cellData[v];
+                                    return `<div class="cell-val"><span class="var-name-micro">${v}:</span> ${val}</div>`;
+                                }).join('');
+                                return `<td class="matrix-cell" title="i=${i}, j=${j}">${content}</td>`;
+                            }).join('');
+                            return `<tr><th class="matrix-header-row">${i}</th>${cells}</tr>`;
+                        }).join('');
+
+                        const headerRow = `<tr><th>i \\ j</th>${sortedJs.map(j => `<th>${j}</th>`).join('')}</tr>`;
+
+                        matrixHtml = `
+                            <div class="matrix-view-container" style="margin-bottom: 16px; overflow-x: auto;">
+                                <div class="matrix-title">Matrix View (i × j)</div>
+                                <table class="matrix-table">
+                                    <thead>${headerRow}</thead>
+                                    <tbody>${matrixRows}</tbody>
+                                </table>
+                            </div>
+                        `;
+                    }
+                }
+            }
+
             const headers = vars.map(v => `<th>${escapeHtml(v)}</th>`).join('');
 
-            // Enhanced table rows with expression display
-            const tableRows = rows.slice(0, 50).map((row, idx) => {
+            // Full iterations (no slice limit)
+            const tableRows = rows.map((row, idx) => {
                 // Handle both old format (direct values) and new format ({values, exprs})
                 const rowValues = row.values || row;
                 const rowExprs = row.exprs || {};
@@ -4059,10 +4453,11 @@ function renderIterations() {
 
             return `
                 <div class="iteration-card">
-                    <div class="iteration-header">
+                    <div class="iteration-header" onclick="toggleIterationPin(this)" style="cursor: pointer;">
                         <span class="iteration-name">${headerTitle}</span>
                         <span style="font-size: 9px; color: var(--text-muted);">${rows.length} iter</span>
                     </div>
+                    ${matrixHtml || ''}
                     <div class="iteration-table-container" style="overflow-x: auto;">
                         <table class="iteration-table">
                             <thead><tr>${headers}</tr></thead>
@@ -4095,15 +4490,8 @@ function renderIterations() {
         // Trace Events Chronologically
         const events = [];
         const traverse = (node) => {
-            // Enter Event
             events.push({ type: 'enter', node });
-
-            // Process Children
-            if (node.children) {
-                node.children.forEach(child => traverse(child));
-            }
-
-            // Exit Event
+            if (node.children) node.children.forEach(traverse);
             events.push({ type: 'exit', node });
         };
         roots.forEach(traverse);
@@ -4143,90 +4531,83 @@ function renderIterations() {
                 <tr>
                     <td>${funcStr} ${isEnter ? '⤵' : '⤴'}</td>
                     <td>${valueStr}</td>
-                    <td style="font-size:10px; color:var(--text-secondary);">${actionStr}</td>
+                    <td class="trace-action">${actionStr}</td>
                 </tr>
             `;
         }).join('');
 
         // 1. Trace HTML (Table)
-        const recursionHtml = `
+        html += `
             <div class="iteration-card">
-                <div class="iteration-header">
-                     <span class="iteration-name">🥞 Recursion Trace</span>
-                     <span style="font-size: 9px; color: var(--text-muted);">${events.length} steps</span>
+                <div class="iteration-header" onclick="toggleIterationPin(this)" style="cursor: pointer;">
+                    <span class="iteration-name">⚡ Recursion Trace</span>
+                    <span style="font-size: 9px; color: var(--text-muted);">${events.length} steps</span>
                 </div>
-                <div class="iteration-table-container" style="overflow-x: auto;">
+                <div class="iteration-table-container">
                     <table class="iteration-table">
-                        <thead>
-                            <tr>
-                                <th>Current Call</th>
-                                <th>Value</th>
-                                <th>Action</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${traceRows}
-                        </tbody>
+                        <thead><tr><th>Function</th><th>Return</th><th>Action</th></tr></thead>
+                        <tbody>${traceRows}</tbody>
                     </table>
                 </div>
             </div>
         `;
 
-        // 2. Visual Tree HTML (Graphical Binary-like Tree)
-        // Helper to render a visual tree with SVG-like connections
-        const renderVisualTree = (root) => {
-            if (!root) return '';
+        // 2. Mermaid Tree HTML (Using Mermaid.js for proper tree diagram)
+        const renderMermaidTree = (roots) => {
+            if (!roots || roots.length === 0) return '';
+
+            // Generate unique node IDs
+            let nodeId = 0;
+            const nodeMap = new Map();
+
+            const getNodeId = (node) => {
+                if (!nodeMap.has(node)) {
+                    nodeMap.set(node, `N${nodeId++}`);
+                }
+                return nodeMap.get(node);
+            };
 
             // Get label for node
             const getLabel = (node) => {
                 const args = Object.values(node.args || {}).join(',');
                 const ret = node.return && node.return !== 'None' ? `=${node.return}` : '';
-                return `${args}${ret}`;
+                return `${node.func}(${args})${ret}`;
             };
 
-            // Build tree levels for proper spacing
-            const levels = [];
-            const buildLevels = (node, depth) => {
-                if (!levels[depth]) levels[depth] = [];
-                levels[depth].push(node);
-                if (node.children) {
-                    node.children.forEach(child => buildLevels(child, depth + 1));
+            // Build Mermaid graph definition
+            let mermaidDef = 'graph TD\n';
+
+            const addNode = (node) => {
+                const id = getNodeId(node);
+                const label = getLabel(node).replace(/"/g, "'");
+                mermaidDef += `    ${id}["${label}"]\n`;
+
+                if (node.children && node.children.length > 0) {
+                    node.children.forEach(child => {
+                        const childId = getNodeId(child);
+                        mermaidDef += `    ${id} --> ${childId}\n`;
+                        addNode(child);
+                    });
                 }
             };
-            buildLevels(root, 0);
 
-            // Render with flex layout for proper centering
-            const renderTreeNode = (node) => {
-                const label = getLabel(node);
-                const hasChildren = node.children && node.children.length > 0;
+            roots.forEach(root => addNode(root));
 
-                return `
-                    <div class="tree-node-wrapper">
-                        <div class="tree-node" title="${escapeHtml(node.func)}(${label})">
-                            <span class="tree-label">${escapeHtml(label || node.func)}</span>
-                        </div>
-                        ${hasChildren ? `
-                            <div class="tree-connector"></div>
-                            <div class="tree-children">
-                                ${node.children.map(child => renderTreeNode(child)).join('')}
-                            </div>
-                        ` : ''}
-                    </div>
-                `;
-            };
+            // Style the nodes
+            mermaidDef += '    classDef default fill:#2d333b,stroke:#58a6ff,color:#e6edf3\n';
 
-            return `<div class="visual-tree">${renderTreeNode(root)}</div>`;
+            return `<div class="mermaid">${mermaidDef}</div>`;
         };
 
         let treeHtml = '';
         if (roots.length > 0) {
             treeHtml = `
                 <div class="iteration-card">
-                    <div class="iteration-header">
+                    <div class="iteration-header" onclick="toggleIterationPin(this)" style="cursor: pointer;">
                          <span class="iteration-name">🌳 Recursion Tree</span>
                     </div>
                     <div class="iteration-table-container" style="padding: 8px; overflow-x: auto;">
-                        ${roots.map(root => renderVisualTree(root)).join('')}
+                        ${renderMermaidTree(roots)}
                     </div>
                 </div>
             `;
@@ -4236,8 +4617,16 @@ function renderIterations() {
         html = treeHtml + recursionHtml + html;
     }
 
-
     panel.innerHTML = html || '<div class="empty-state">No data collected</div>';
+
+    // Re-initialize Mermaid for the new diagrams after DOM update
+    setTimeout(() => {
+        if (typeof mermaid !== 'undefined') {
+            try {
+                mermaid.init(undefined, document.querySelectorAll('.iteration-card .mermaid, #visualizerPanel .mermaid'));
+            } catch (e) { console.debug('Mermaid init:', e); }
+        }
+    }, 10);
 }
 
 // Capture loop iterations from code execution
@@ -4250,25 +4639,49 @@ async function captureIterations(code) {
     const lines = code.split('\n');
     let loopCount = 0;
     let modifiedCode = '';
-    let inLoop = false;
-    let loopVars = [];
-    let currentLoopName = '';
-    let loopIndent = 0;
+
+    // Stack to handle nesting: [{ indent, vars, name }]
+    let loopStack = [];
 
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
         const trimmed = line.trim();
+        if (!trimmed) {
+            modifiedCode += line + '\n';
+            continue;
+        }
+
         const indent = line.search(/\S|$/);
+
+        // Pop finished loops from stack based on indentation
+        while (loopStack.length > 0 && indent <= loopStack[loopStack.length - 1].indent && !trimmed.startsWith('#') && !trimmed.startsWith('else') && !trimmed.startsWith('elif')) {
+            loopStack.pop();
+        }
 
         // Detect for loop start
         const forMatch = trimmed.match(/^for\s+(\w+)\s+in\s+/);
         if (forMatch) {
             loopCount++;
-            currentLoopName = `loop_${loopCount} `;
-            loopVars = [forMatch[1]];
-            loopIndent = indent;
-            inLoop = true;
-            iterationData[currentLoopName] = { variables: loopVars, iterations: [] };
+            const currentLoopName = `loop_${loopCount}`;
+            const iterator = forMatch[1];
+
+            // Inherit variables from parent loop
+            let inheritedVars = [];
+            if (loopStack.length > 0) {
+                inheritedVars = [...loopStack[loopStack.length - 1].vars];
+            }
+
+            // Vars for this method: inherited + iterator
+            const currentVars = [...inheritedVars];
+            if (!currentVars.includes(iterator)) currentVars.push(iterator);
+
+            loopStack.push({
+                indent: indent,
+                vars: currentVars,
+                name: currentLoopName
+            });
+
+            iterationData[currentLoopName] = { variables: currentVars, iterations: [] };
             modifiedCode += line + '\n';
             continue;
         }
@@ -4276,26 +4689,38 @@ async function captureIterations(code) {
         // Detect while loop
         if (trimmed.startsWith('while ')) {
             loopCount++;
-            currentLoopName = `loop_${loopCount} `;
-            loopVars = [];
-            loopIndent = indent;
-            inLoop = true;
-            iterationData[currentLoopName] = { variables: [], iterations: [] };
+            const currentLoopName = `loop_${loopCount}`;
+
+            // Inherit variables from parent loop
+            let inheritedVars = [];
+            if (loopStack.length > 0) {
+                inheritedVars = [...loopStack[loopStack.length - 1].vars];
+            }
+
+            const currentVars = [...inheritedVars];
+
+            loopStack.push({
+                indent: indent,
+                vars: currentVars,
+                name: currentLoopName
+            });
+
+            iterationData[currentLoopName] = { variables: currentVars, iterations: [] };
             modifiedCode += line + '\n';
             continue;
         }
 
-        // Check if we're still in the loop
-        if (inLoop && indent <= loopIndent && trimmed && !trimmed.startsWith('#')) {
-            inLoop = false;
-        }
-
         // Track variable assignments inside loops
-        if (inLoop) {
+        if (loopStack.length > 0) {
+            const currentLoop = loopStack[loopStack.length - 1];
             const assignMatch = trimmed.match(/^(\w+)\s*=/);
-            if (assignMatch && !loopVars.includes(assignMatch[1])) {
-                loopVars.push(assignMatch[1]);
-                iterationData[currentLoopName].variables = loopVars;
+            if (assignMatch) {
+                const varName = assignMatch[1];
+                if (!currentLoop.vars.includes(varName)) {
+                    currentLoop.vars.push(varName);
+                    // Update iterationData for the current loop
+                    iterationData[currentLoop.name].variables = currentLoop.vars;
+                }
             }
         }
 
@@ -4323,5 +4748,49 @@ document.addEventListener('DOMContentLoaded', () => {
     initAutoRunAllTests();
     initIterationVisualizer();
 });
+
+function initIterationVisualizer() {
+    console.log('Initializing Iteration Visualizer');
+    const runTestsBtn = document.getElementById('runAllTestsBtn');
+    if (runTestsBtn) {
+        runTestsBtn.addEventListener('click', async () => {
+            const code = editor.getValue();
+            await trackLoopIterations(code);
+        });
+    }
+}
+
+// Global Hover Handlers for Variables
+window.showVarPreview = function (element) {
+    const varItem = element.closest('.var-item');
+    if (!varItem) return;
+
+    // Check if pinned based on data attribute
+    const pinLevel = parseInt(varItem.dataset.pinLevel || '0');
+    if (pinLevel > 0) return; // Do nothing if pinned
+
+    // Show Preview (Level 1)
+    const valueDiv = varItem.querySelector('.var-current-value');
+    if (valueDiv) {
+        valueDiv.style.display = 'block';
+        varItem.classList.add('hover-preview');
+    }
+};
+
+window.hideVarPreview = function (element) {
+    const varItem = element.closest('.var-item');
+    if (!varItem) return;
+
+    // Check if pinned
+    const pinLevel = parseInt(varItem.dataset.pinLevel || '0');
+    if (pinLevel > 0) return;
+
+    // Hide Preview
+    const valueDiv = varItem.querySelector('.var-current-value');
+    if (valueDiv) {
+        valueDiv.style.display = 'none';
+        varItem.classList.remove('hover-preview');
+    }
+};
 
 

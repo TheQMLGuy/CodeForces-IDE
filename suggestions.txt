@@ -58,3 +58,59 @@ like if i enter 1 while pressing alt the cursor will go to 1st line without chan
 if i enter 1e it takes me to the end of 1st line
 --done-- Alt+number goes to line, Alt+number+e goes to end of line
 and add option like snippets where i can add my own set of rules using alt
+--done-- custom Alt movement rules UI added in Movement modal (🎯 Movement button in header)
+--done--
+for conditionals also it should show start -> ... -> end and when we hover over it, it shows the full history
+
+<__main__.Node object at 0xa91430> → <__main__.Node object at 0xe72a50> → <__main__.Node object at 0xe44010> → <__main__.Node object at 0x9f11a0> → <__main__.Node object at 0x10b43c8> → <__main__.Node object at 0xdbee38> → <__main__.Node object at 0x119f528> → <__main__.Node object at 0xa91430>
+
+fix this too, where it should show like Node(value)
+not the address
+
+also while making recursion tree, make a true tree....
+like this 
+              2
+            /   \
+           1     3
+          / \   / \
+         4   5 6   7  
+and the recursion trace is not showing the full history fix that too...
+and when i make a tree it should show a tree, and it can do it with the help of this algo:
+look at the class definition of node, lets say the node has left and right, and then it iteratively does root.left and root.right for each root val, and it does it untill it gets null for both of them, this will give an idea how does the tree looks like and make that tree in the variables tab, where the root is written...
+and dont incclude the __init__ function in variable box its useless
+also add a rule if i click enter when my cursor is just before a bracket automatically move to the next line
+and in the loops also show how is something changing
+for example lets say i have this
+j = 2
+for i in range(3):
+    j += i
+
+so you will show me in the table
+
+i    j
+-    2
+0    2+i(0)=2
+1    2+i(1)=3
+2    3+i(2)=5
+
+add operators to integer variables, like +,-,*,/,% in a dropdown system 
+it will work like this:
+we will click a button and it will open a dropdown where we can select the operator and after selecting the operator we will have to enter a number
+and it will paste in that value
+like n % 2
+and move that convert to another datatype button to each variable its specific to each variable 
+because i would wanna convert the datatype of a variable to another datatype for each variable right?
+and chnage the datatype icon to an arrow -> from the loop one so that we dont get confused due to same icon for loop and change to datatype
+the area to the left of line numbers take up a lot of space, make it smaller, or even better remove it...
+even show linked list with mermaid, even if its linear show it with mermaid
+also it doesnt shows the history of the trees, when we hover its must show all the states of tree it went through..., and remove functions from variables....
+and use mermaid for making recursion tree and use nice tables for recursion trace(and automatically shorten names so that eveyrthing is crystal clear)
+and use mermaid for making graphs and trees and linked lists
+and actually do one thing
+
+group variables first by classses and then functions
+or functions
+
+like all the functions of a class are packed under one class and under the function we see the variables(only name and current value, and when we hover over it we see the history, actions and other things that we have added...)
+so that its clear divide.....
+and when i import a library it automatically installs that library in background and starts suggesting me its method too when i start typing in things...
