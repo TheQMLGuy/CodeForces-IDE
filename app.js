@@ -143,6 +143,16 @@ async function init() {
         // Show App IMMEDIATELY (Non-blocking)
         if (elements.app) elements.app.classList.remove('hidden');
 
+        // Hide Loading Screen
+        const loadingScreen = document.getElementById('loadingScreen');
+        if (loadingScreen) {
+            loadingScreen.classList.add('hidden');
+            // Remove from DOM after transition
+            setTimeout(() => {
+                loadingScreen.style.display = 'none';
+            }, 500);
+        }
+
         // Initialize CodeMirror
         initEditor();
 

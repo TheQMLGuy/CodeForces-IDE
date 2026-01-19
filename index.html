@@ -32,7 +32,57 @@
 </head>
 
 <body>
-    <!-- Non-blocking toast container if needed, or just remove loading screen -->
+    <!-- Global Error Handler for Debugging Deployment -->
+    <script>
+        window.onerror = function (msg, url, lineNo, columnNo, error) {
+            const overlay = document.getElementById('debugOverlay') || document.createElement('div');
+            overlay.id = 'debugOverlay';
+            overlay.style.position = 'fixed';
+            overlay.style.top = '0';
+            overlay.style.left = '0';
+            overlay.style.width = '100%';
+            overlay.style.background = 'rgba(0,0,0,0.9)';
+            overlay.style.color = '#ff5555';
+            overlay.style.zIndex = '9999';
+            overlay.style.padding = '20px';
+            overlay.style.fontFamily = 'monospace';
+            overlay.style.whiteSpace = 'pre-wrap';
+            overlay.innerHTML += `<div><strong>Error:</strong> ${msg}<br><small>${url}:${lineNo}:${columnNo}</small><br>${error ? error.stack : ''}</div><hr>`;
+            document.body.appendChild(overlay);
+            return false;
+        };
+        // Catch 404s for scripts/resources
+        window.addEventListener('error', function (e) {
+            if (e.target.tagName && (e.target.tagName === 'SCRIPT' || e.target.tagName === 'LINK')) {
+                const overlay = document.getElementById('debugOverlay') || document.createElement('div');
+                overlay.id = 'debugOverlay';
+                overlay.style.position = 'fixed';
+                overlay.style.top = '0';
+                overlay.style.left = '0';
+                overlay.style.width = '100%';
+                overlay.style.background = 'rgba(0,0,0,0.9)';
+                overlay.style.color = '#ff5555';
+                overlay.style.zIndex = '9999';
+                overlay.style.padding = '20px';
+                overlay.style.fontFamily = 'monospace';
+                overlay.innerHTML += `<div><strong>Resource Load Failed:</strong> ${e.target.src || e.target.href}</div><hr>`;
+                document.body.appendChild(overlay);
+            }
+        }, true);
+    </script>
+
+    <!-- Loading Screen -->
+    <div id="loadingScreen" class="loading-screen">
+        <div class="loading-content">
+            <div class="loading-logo">⚡</div>
+            <h1>Codeforces IDE</h1>
+            <div class="loading-subtitle">Web Edition</div>
+            <div class="loading-bar">
+                <div class="loading-progress"></div>
+            </div>
+            <div id="loadingStatus" class="loading-status">Initializing environment...</div>
+        </div>
+    </div>
 
 
     <!-- Main App -->
