@@ -141,7 +141,9 @@ let currentTheme = 'dark';
 async function init() {
     try {
         // Show App IMMEDIATELY (Non-blocking)
-        if (elements.app) elements.app.classList.remove('hidden');
+        // Ensure we get the element even if it wasn't available at script load
+        const appEl = elements.app || document.getElementById('app');
+        if (appEl) appEl.classList.remove('hidden');
 
         // Initialize CodeMirror
         initEditor();
@@ -4645,4 +4647,8 @@ document.addEventListener('DOMContentLoaded', () => {
     initIterationVisualizer();
 });
 
-
+// Ultra-early fallback: ensure app is visible even before DOMContentLoaded fires
+(function () {
+    const app = document.getElementById('app');
+    if (app) app.classList.remove('hidden');
+})();
